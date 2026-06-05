@@ -1,0 +1,33 @@
+{
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "off",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false,
+  "reportMissingTypeStubs": false,
+  "reportGeneralTypeIssues": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalSubscript": false,
+  "reportOptionalCall": false,
+  "reportOptionalIterable": false,
+  "reportOptionalOperand": false,
+  "reportUnnecessaryTypeIgnoreComment": false,
+  "reportUnusedImport": false,
+  "reportUnusedVariable": false,
+  "reportUnusedExpression": false,
+  "reportUntypedBaseClass": false,
+  "reportIndexIssue": false,
+  "reportAttributeAccessIssue": false,
+  "reportCallIssue": false,
+  "reportOperatorIssue": false,
+  "reportArgumentType": false,
+  "reportReturnType": false,
+  "reportAssignmentType": false,
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": ["src"],
+      "pythonVersion": "3.11"
+    }
+  ]
+}

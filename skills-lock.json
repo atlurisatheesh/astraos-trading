@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "skills": {
+    "Financial Data Fetcher": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "6903e6bbc0d1eed55c2f4b0cddfc01ffd60cb071a3db50d6f59970db9c6a2239"
+    },
+    "backtesting-trading-strategies": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "23aa3da222e91ca8fee575df979f6ea7ac1071a46badc3e310f921b7a258d83f"
+    },
+    "oma-backend": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "5bc996c7306c9a736d26ed736302778f5e9e7b32770e56d1cc2757c9d8ffa123"
+    },
+    "oma-brainstorm": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "61d5cde11be9b57f06a1101bfb0fb54de3dd9e843a699cf72612d58874614ed9"
+    },
+    "oma-commit": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "08df0d738698cf166fc0be91a4b8b593e63474c7a3faa443c772cd2425915209"
+    },
+    "oma-coordination": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "6cf77601fdc59ce36cb86c7cec1b8831f35261356afafa7ed71ef6b45251bf47"
+    },
+    "oma-db": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "335660fe7b9449b7ea2f1901c75509f920ed8ce7ff890dcd75d4725590442a26"
+    },
+    "oma-debug": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "5f5ac907bce3816e20e6e84ded2a8c30889cbb700dfd3870873b1d936834c3c9"
+    },
+    "oma-dev-workflow": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "6412b5441415ca768ea06139380ab3aad31976a1fbed6a3f607caee57373a394"
+    },
+    "oma-frontend": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "8722c9a70fcc780770dc23a9661a0f57409f0df436dacd2bb4163c62b5744afc"
+    },
+    "oma-mobile": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "a3de814b21bde7c79eb47f1071787585f465ac9e41446c0b7d93cdfaa0d628cf"
+    },
+    "oma-orchestrator": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "1e8779e8263486e346940a0c8f6b8f3e8e82845ba3fcd5ccdeed6d4a925e2ee2"
+    },
+    "oma-pm": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "ac281326cbf46bd668558c4560a9e979005aabcc35e987a155dc7f184fffb6fc"
+    },
+    "oma-qa": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "9abf0695fd640cc1def0bffe1d3f9bbd0312a13e240b72b0e89e3c70922c5d51"
+    },
+    "oma-tf-infra": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "ef3cb0d599698339071450fb47b1f72b9ede877e5d36620b6fcb89a0eef9bcd0"
+    },
+    "oma-translator": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "e517151a5fc435904f50a2763091bcdd577a23b05feac098986e278ae55dbc1d"
+    },
+    "stock-analysis": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "095b89fb6c8ed3c5a01803f18749997ae3c8efbaa938637ebc694f8594ef4b6e"
+    },
+    "trading-analysis": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "16deb933c60d70e41a2d19431bb6865bb44214def192ecec873071fbd2fd8bd2"
+    },
+    "yahoo-finance": {
+      "source": "gracefullight/stock-checker",
+      "sourceType": "github",
+      "computedHash": "caa54f178d378e381330cf5a4151ce5bcdcbe05ace01c1816438f2c698225795"
+    }
+  }
+}

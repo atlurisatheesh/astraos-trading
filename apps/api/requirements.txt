@@ -1,0 +1,63 @@
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+
+# Redis
+redis==5.2.1
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[argon2]==1.7.4
+argon2-cffi==23.1.0
+python-multipart==0.0.20
+
+# Security
+cryptography==44.0.0
+
+# Market Data (FREE)
+yfinance==0.2.51
+pandas==2.2.3
+pandas-ta==0.3.14b1
+
+# NLP/AI (FREE)
+transformers==4.47.1
+torch==2.5.1
+vaderSentiment==3.3.2
+google-generativeai==0.8.4
+langgraph==0.2.62
+langchain-core==0.3.29
+
+# ML (FREE)
+scikit-learn==1.6.1
+xgboost==2.1.3
+hmmlearn==0.3.3
+
+# Scheduler
+apscheduler==3.10.4
+
+# Utilities
+httpx==0.28.1
+structlog==24.4.0
+python-dateutil==2.9.0
+pytz==2024.2
+
+# Broker SDKs (install the ones you need)
+smartapi-python==1.4.2     # Angel One
+pyotp==2.9.0               # Angel One TOTP
+kiteconnect==5.0.1         # Zerodha Kite
+upstox-python-sdk==2.10.0  # Upstox
+fyers-apiv3==3.1.2         # Fyers
+py5paisa==0.7.8            # 5Paisa
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.2
+pytest-cov==6.0.0
+factory-boy==3.3.1

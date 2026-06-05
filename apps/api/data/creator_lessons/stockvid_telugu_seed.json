@@ -1,0 +1,58 @@
+{
+  "lessons": [
+    {
+      "creator": "stockvid.telugu",
+      "title": "Pre-open Strategy",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn this setup. Use this topic as a placeholder for pre-open market planning, gap context, opening range discipline, and risk-first intraday preparation.",
+      "concepts": ["pre-open", "intraday", "opening range", "gap analysis", "risk management"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    },
+    {
+      "creator": "stockvid.telugu",
+      "title": "Bullish Marubozu",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn the creator's explanation. Use this topic as a placeholder for strong bullish candles, close-near-high behavior, follow-through confirmation, and invalidation below the setup candle.",
+      "concepts": ["bullish marubozu", "candlestick", "momentum", "confirmation", "stop loss"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    },
+    {
+      "creator": "stockvid.telugu",
+      "title": "Expiry Day Explained",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn this lesson. Use this topic as a placeholder for expiry-day volatility, theta decay, option premium behavior, position sizing, and avoiding overtrading.",
+      "concepts": ["expiry day", "options", "theta decay", "volatility", "position sizing"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    },
+    {
+      "creator": "stockvid.telugu",
+      "title": "Liquidity Sweep",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn this lesson. Use this topic as a placeholder for stop hunts, liquidity grabs, failed breakouts, reclaim confirmation, and predefined invalidation.",
+      "concepts": ["liquidity sweep", "stop hunt", "failed breakout", "reclaim", "invalidation"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    },
+    {
+      "creator": "stockvid.telugu",
+      "title": "Bullish Engulfing",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn this lesson. Use this topic as a placeholder for bullish reversal candles, trend context, volume confirmation, entry discipline, and stop placement.",
+      "concepts": ["bullish engulfing", "candlestick", "reversal", "volume", "entry discipline"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    },
+    {
+      "creator": "stockvid.telugu",
+      "title": "Shooting Star",
+      "transcript": "Seed lesson from screenshot metadata only. Full caption or transcript is needed before the agent can learn this lesson. Use this topic as a placeholder for rejection candles, upper-wick supply, bearish confirmation, failed continuation, and risk-defined shorts.",
+      "concepts": ["shooting star", "candlestick", "rejection", "supply", "bearish confirmation"],
+      "language": "Telugu",
+      "source_type": "instagram",
+      "source_note": "Created from user-provided screenshot; not scraped from Instagram."
+    }
+  ]
+}

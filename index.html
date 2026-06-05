@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QUANTUS AI — Autonomous Trading Intelligence</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">
+      <div class="logo-icon">Q</div>
+      <div>
+        <div class="logo-text">QUANTUS AI</div>
+        <div class="logo-sub">Autonomous Trading</div>
+      </div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Overview</div>
+    <div class="nav-item active" onclick="showTab('dashboard')">
+      <span class="nav-icon">⬡</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showTab('signals')">
+      <span class="nav-icon">◈</span> AI Signals <span class="nav-badge green">12</span>
+    </div>
+    <div class="nav-section">Markets</div>
+    <div class="nav-item" onclick="showTab('nifty')">
+      <span class="nav-icon">◉</span> Nifty / BankNifty
+    </div>
+    <div class="nav-item" onclick="showTab('fo')">
+      <span class="nav-icon">◈</span> F&amp;O Options Chain
+    </div>
+    <div class="nav-item" onclick="showTab('watchlist')">
+      <span class="nav-icon">◎</span> Watchlist
+    </div>
+    <div class="nav-section">Intelligence</div>
+    <div class="nav-item" onclick="showTab('research')">
+      <span class="nav-icon">◈</span> Deep Research
+    </div>
+    <div class="nav-item" onclick="showTab('predictions')">
+      <span class="nav-icon">◉</span> AI Predictions
+    </div>
+    <div class="nav-item" onclick="showTab('sector')">
+      <span class="nav-icon">⬡</span> Sector Heatmap
+    </div>
+    <div class="nav-section">Automation</div>
+    <div class="nav-item" onclick="showTab('positions')">
+      <span class="nav-icon">◈</span> Positions <span class="nav-badge">3</span>
+    </div>
+    <div class="nav-item" onclick="showTab('auto')">
+      <span class="nav-icon">◉</span> Auto-Trade Engine
+    </div>
+    <div class="nav-item" onclick="showTab('risk')">
+      <span class="nav-icon">⬡</span> Risk Manager
+    </div>
+    <div class="nav-section">Tools</div>
+    <div class="nav-item" onclick="showTab('backtest')">
+      <span class="nav-icon">◎</span> Backtest Studio
+    </div>
+    <div class="nav-item" onclick="showTab('chat')">
+      <span class="nav-icon">◈</span> AI Analyst
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="market-status">
+      <div class="status-dot"></div>
+      Market Open · NSE
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:4px;">Algo Engine: ACTIVE</div>
+  </div>
+</div>
+
+<!-- TICKER TAPE -->
+<div style="margin-left:220px;">
+<div class="ticker-tape">
+  <span class="ticker-scroll">
+    <span class="ticker-tape-item"><span class="tt-name">NIFTY50</span><span class="up">24,842.65</span><span class="up">+0.42%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">BANKNIFTY</span><span class="up">52,318.40</span><span class="up">+0.68%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">SENSEX</span><span class="up">81,576.35</span><span class="up">+0.51%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">RELIANCE</span><span class="dn">2,892.75</span><span class="dn">-0.31%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">TCS</span><span class="up">4,126.00</span><span class="up">+1.14%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">HDFC BANK</span><span class="up">1,887.50</span><span class="up">+0.88%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">INFOSYS</span><span class="dn">1,672.30</span><span class="dn">-0.22%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">ICICI BANK</span><span class="up">1,435.80</span><span class="up">+1.22%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">WIPRO</span><span class="up">487.65</span><span class="up">+0.43%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">BAJFINANCE</span><span class="dn">6,782.00</span><span class="dn">-0.56%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">GOLD</span><span class="up">₹71,450</span><span class="up">+0.34%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">USD/INR</span><span class="dn">83.42</span><span class="dn">-0.08%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">NIFTY50</span><span class="up">24,842.65</span><span class="up">+0.42%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">BANKNIFTY</span><span class="up">52,318.40</span><span class="up">+0.68%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">SENSEX</span><span class="up">81,576.35</span><span class="up">+0.51%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">RELIANCE</span><span class="dn">2,892.75</span><span class="dn">-0.31%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">TCS</span><span class="up">4,126.00</span><span class="up">+1.14%</span></span>
+    <span class="ticker-tape-item"><span class="tt-name">HDFC BANK</span><span class="up">1,887.50</span><span class="up">+0.88%</span></span>
+  </span>
+</div>
+
+<!-- MAIN -->
+<div class="main" style="margin-left:0;">
+<div class="topbar">
+  <div class="topbar-title">Dashboard <span>Tuesday, 24 March 2026 · 13:42 IST</span></div>
+  <div class="market-ticker">
+    <div class="ticker-item"><span class="ticker-name">N50</span><span class="ticker-val up">24,842</span><span class="ticker-chg up">+105</span></div>
+    <div class="ticker-item"><span class="ticker-name">BNK</span><span class="ticker-val up">52,318</span><span class="ticker-chg up">+353</span></div>
+    <div class="ticker-item"><span class="ticker-name">VIX</span><span class="ticker-val dn">14.32</span><span class="ticker-chg dn">-0.8</span></div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn" onclick="showNotif('🤖 Auto-Trade PAUSED','All pending orders held.')">⏸ Pause Bot</button>
+    <button class="btn btn-danger" onclick="showNotif('🛑 Emergency STOP activated','All positions will be squared off.','red')">⬛ Kill Switch</button>
+    <button class="btn btn-primary" onclick="showNotif('🚀 New Signal Detected','ICICI BANK → Strong BUY · Target ₹1,510')">+ New Signal</button>
+  </div>
+</div>
+
+<div class="content" id="mainContent"></div>
+</div>
+</div>
+
+<!-- NOTIFICATION -->
+<div class="notif" id="notif">
+  <div class="notif-title"><span id="notif-icon">🤖</span><span id="notif-title-text">QUANTUS AI</span></div>
+  <div class="notif-body" id="notif-body"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

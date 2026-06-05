@@ -1,0 +1,31 @@
+{
+  "site_package_search_strategy": "all",
+  "source_directories": [
+    "apps/api/src"
+  ],
+  "search_path": [
+    "apps/api/src",
+    "C:/Users/atlur/AppData/Local/Programs/Python/Python311/Lib/site-packages"
+  ],
+  "typeshed": "C:/Users/atlur/AppData/Local/Programs/Python/Python311/Lib",
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/venv",
+    "**/.venv",
+    "**/\\.git"
+  ],
+  "strict": false,
+  "ignore_all_errors": [
+    "apps/api/src/broker",
+    "apps/api/src/scheduler",
+    "apps/api/src/ml",
+    "apps/api/src/routers",
+    "apps/api/src/agents",
+    "apps/api/src/services",
+    "apps/api/src/core",
+    "apps/api/src/models",
+    "apps/api/src/nlp",
+    "apps/api/src/risk"
+  ]
+}

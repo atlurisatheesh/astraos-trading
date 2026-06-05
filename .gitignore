@@ -1,0 +1,47 @@
+# Environment & Secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+pgdata/
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ML Models (large binary files)
+apps/api/data/models/*.pkl
+apps/api/data/models/*.json
+
+# Build
+*.log
