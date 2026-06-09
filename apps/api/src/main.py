@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
         llm=settings.llm_provider,
     )
 
+
     # Run database migrations on startup (production)
     if settings.app_env == "production":
         try:
