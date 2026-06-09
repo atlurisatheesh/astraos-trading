@@ -8,7 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ── Single canonical path for all ML artefacts ──────────────────────────────
 # apps/api/src/core/config.py → parent×3 = apps/api/
 ML_MODEL_DIR: Path = Path(__file__).parent.parent.parent / "data" / "models"
-ML_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    ML_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass  # Read-only filesystem (some cloud envs)
 
 
 class Settings(BaseSettings):
