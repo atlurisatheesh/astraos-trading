@@ -10,7 +10,10 @@ from pathlib import Path
 import structlog
 from typing import List
 
-from langchain_core.documents import Document
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    Document = None  # type: ignore[assignment,misc]
 
 try:
     from langchain_community.vectorstores import FAISS
@@ -34,14 +37,21 @@ class RAGEngine:
     """Retrieval-Augmented Generation using local PDFs and FAISS."""
 
     def __init__(self, embed_model_name: str = "all-MiniLM-L6-v2"):
-        from langchain_huggingface import HuggingFaceEmbeddings
-        
         self.embed_model_name = embed_model_name
-        self.embeddings = HuggingFaceEmbeddings(model_name=embed_model_name)
+        self.embeddings = None
         self.vector_store = None
         
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+            self.embeddings = HuggingFaceEmbeddings(model_name=embed_model_name)
+        except ImportError:
+            logger.warning("langchain_huggingface not available — RAG disabled")
+        
         # Ensure data dir exists
-        os.makedirs(INDEX_DIR, exist_ok=True)
+        try:
+            os.makedirs(INDEX_DIR, exist_ok=True)
+        except Exception:
+            pass
 
     def load_and_index_books(self, force_rebuild: bool = False):
         """Parse PDFs, chunk, and create FAISS index."""
