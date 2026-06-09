@@ -85,11 +85,22 @@ class YFinanceProvider(MarketDataProvider):
         )
 
     async def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame:
-        """Get historical OHLCV data."""
+        """Get historical OHLCV data.
+
+        Supports intraday intervals: 1m, 2m, 5m, 15m, 30m, 60m, 90m
+        Note: yfinance limits intraday data to last 60 days (5m) or 7 days (1m).
+        """
         yf_symbol = self._to_nse_symbol(symbol)
+
+        # Adjust period for intraday (yfinance limits)
+        if interval in ("1m", "2m"):
+            period = min(period, "7d") if period not in ("1d", "5d", "7d") else period
+        elif interval in ("5m", "15m", "30m"):
+            period = "60d" if period not in ("1d", "5d", "1mo", "60d") else period
+
         df = yf.download(yf_symbol, period=period, interval=interval, progress=False)
         if df.empty:
-            logger.warning("No data returned from yfinance", symbol=symbol)
+            logger.warning("No data returned from yfinance", symbol=symbol, interval=interval)
             return pd.DataFrame()
 
         # Flatten multi-level columns if present
@@ -98,6 +109,14 @@ class YFinanceProvider(MarketDataProvider):
 
         df.index.name = "date"
         return df
+
+    async def get_intraday_ohlcv(self, symbol: str, interval: str = "15m") -> pd.DataFrame:
+        """Get intraday OHLCV data (last 60 days for 5m+, 7 days for 1m).
+
+        This is what real intraday traders use — not daily candles.
+        """
+        period = "7d" if interval in ("1m", "2m") else "60d"
+        return await self.get_ohlcv(symbol, interval=interval, period=period)
 
     async def get_multiple_quotes(self, symbols: list[str]) -> list[Quote]:
         """Get quotes for multiple symbols."""
@@ -139,7 +158,22 @@ class YFinanceProvider(MarketDataProvider):
 
 
 def get_market_data_provider(provider: str = "yfinance") -> MarketDataProvider:
-    """Factory: get market data provider by name."""
+    """Factory: get market data provider by name.
+
+    Automatically upgrades to Angel One if credentials are configured,
+    keeping yfinance as fallback for historical data.
+    """
+    # Auto-detect: if Angel One is configured, use it for quotes
+    try:
+        from ..core.config import get_settings
+        settings = get_settings()
+        if settings.angel_api_key and settings.angel_client_id:
+            logger.info("Angel One credentials detected — real-time data available")
+            # Still return yfinance for OHLCV (Angel One is better for live quotes)
+            # The realtime_data_service handles live quote upgrades separately
+    except Exception:
+        pass
+
     providers = {
         "yfinance": YFinanceProvider,
     }

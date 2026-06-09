@@ -104,6 +104,68 @@ def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result["VWAP"] = ta.volume.volume_weighted_average_price(high, low, close, volume)
     result["FI"] = ta.volume.force_index(close, volume)
 
+    # ── VWAP Deviation (institutional reference) ──
+    if "VWAP" in result.columns:
+        result["VWAP_dev_pct"] = ((close - result["VWAP"]) / (result["VWAP"] + 1e-10)) * 100
+        result["above_vwap"] = (close > result["VWAP"]).astype(int)
+
+    # ── Opening Range Breakout features (daily) ──
+    # ORB uses first candle's high/low as reference for the day
+    result["prev_high"] = high.shift(1)
+    result["prev_low"] = low.shift(1)
+    result["prev_range"] = result["prev_high"] - result["prev_low"]
+    result["range_pct"] = (result["prev_range"] / (close.shift(1) + 1e-10)) * 100
+    result["breakout_up"] = (close > result["prev_high"]).astype(int)
+    result["breakout_down"] = (close < result["prev_low"]).astype(int)
+
+    # ── Volume Profile (relative volume and accumulation) ──
+    result["rel_volume"] = volume / (volume.rolling(20).mean() + 1e-10)
+    result["volume_trend"] = volume.rolling(5).mean() / (volume.rolling(20).mean() + 1e-10)
+    # Price-Volume divergence (price up + volume down = weak rally)
+    price_up = (close.diff() > 0).astype(int)
+    vol_up = (volume.diff() > 0).astype(int)
+    result["pv_divergence"] = (price_up != vol_up).astype(int)
+
+    # ── Multi-Timeframe Signals ──
+    # Weekly trend proxy (5-day momentum vs 20-day)
+    result["mtf_weekly_trend"] = (close.rolling(5).mean() > close.rolling(20).mean()).astype(int)
+    # Monthly trend proxy (20-day vs 60-day)
+    result["mtf_monthly_trend"] = (close.rolling(20).mean() > close.rolling(60).mean()).astype(int)
+    # Alignment score: when all timeframes agree
+    result["mtf_alignment"] = (
+        result.get("mtf_weekly_trend", 0).astype(int) +
+        result.get("mtf_monthly_trend", 0).astype(int) +
+        (close > result.get("SMA_200", close)).astype(int)
+    )
+
+    # ── Trailing Stop (ATR-based Chandelier Exit) ──
+    if "ATR" in result.columns:
+        result["chandelier_long"] = high.rolling(22).max() - result["ATR"] * 3
+        result["chandelier_short"] = low.rolling(22).min() + result["ATR"] * 3
+        result["above_chandelier"] = (close > result["chandelier_long"]).astype(int)
+
+    # ── Gap Detection (opening gap vs previous close) ──
+    prev_close = close.shift(1)
+    open_price = result["Open"]
+    result["gap_pct"] = ((open_price - prev_close) / (prev_close + 1e-10)) * 100
+    result["gap_up"] = (result["gap_pct"] > 0.5).astype(int)
+    result["gap_down"] = (result["gap_pct"] < -0.5).astype(int)
+    result["big_gap"] = (result["gap_pct"].abs() > 1.5).astype(int)
+
+    # ── Support/Resistance (pivot points + swing highs/lows) ──
+    # Classic pivot points
+    pp = (high.shift(1) + low.shift(1) + prev_close) / 3
+    result["pivot"] = pp
+    result["R1"] = 2 * pp - low.shift(1)
+    result["S1"] = 2 * pp - high.shift(1)
+    result["R2"] = pp + (high.shift(1) - low.shift(1))
+    result["S2"] = pp - (high.shift(1) - low.shift(1))
+    # Distance from pivot as % (useful for ML)
+    result["dist_pivot_pct"] = ((close - pp) / (pp + 1e-10)) * 100
+    # Near support or resistance (within 0.5%)
+    result["near_support"] = ((close - result["S1"]).abs() / (close + 1e-10) < 0.005).astype(int)
+    result["near_resistance"] = ((result["R1"] - close).abs() / (close + 1e-10) < 0.005).astype(int)
+
     # ── Custom Derived Signals ──
     _add_custom_signals(result)
 
@@ -160,6 +222,15 @@ def get_signal_summary(df: pd.DataFrame) -> dict:
         "obv": float(latest.get("OBV", 0)),
         "cmf": float(latest.get("CMF", 0)),
         "mfi": float(latest.get("MFI", 0)),
+        "vwap": float(latest.get("VWAP", 0)),
+        "vwap_dev_pct": float(latest.get("VWAP_dev_pct", 0)),
+        "above_vwap": bool(latest.get("above_vwap", 0)),
+        "rel_volume": float(latest.get("rel_volume", 1)),
+        "volume_spike": bool(latest.get("volume_spike", 0)),
+        "breakout_up": bool(latest.get("breakout_up", 0)),
+        "breakout_down": bool(latest.get("breakout_down", 0)),
+        "mtf_alignment": int(latest.get("mtf_alignment", 0)),
+        "pv_divergence": bool(latest.get("pv_divergence", 0)),
         "trend": "bullish" if latest.get("SMA_50", 0) > latest.get("SMA_200", 0) else "bearish",
         "momentum": "overbought" if latest.get("RSI_14", 50) > 70 else "oversold" if latest.get("RSI_14", 50) < 30 else "neutral",
         "volatility": "high" if latest.get("ATR", 0) > 2 else "low",

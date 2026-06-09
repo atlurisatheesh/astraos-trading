@@ -9,6 +9,7 @@ Handles weekly model re-training on the full NIFTY 50 universe:
 """
 
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -53,13 +54,32 @@ async def job_weekly_retrain() -> None:
         from ..ml.model_registry import register_model, CURRENT_MODEL, get_active_model_info
         from ..scheduler.engine import push_feed
         
-        push_feed("ML_TRAIN", "🧠 Weekly re-training started — NIFTY 50 universe (3y data)")
+        push_feed("ML_TRAIN", "🧠 Weekly re-training started — Ultimate Ensemble (5y data)")
 
-        # Train on NIFTY 50 with 3 years of data (matches standalone train_model.py defaults)
-        await asyncio.to_thread(
-            train_signal_model_sync, NIFTY_50, "3y",
-            forward_days=5, threshold=1.5,
-        )
+        # Use the ultimate ensemble trainer for best accuracy
+        # Falls back to standard trainer if ultimate fails
+        try:
+            import subprocess
+            import sys
+            scripts_dir = str(Path(__file__).parent.parent.parent / "scripts")
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, f"{scripts_dir}/train_ultimate.py"],
+                capture_output=True, text=True, timeout=1800,
+                cwd=str(Path(__file__).parent.parent.parent),
+            )
+            if result.returncode == 0:
+                logger.info("Ultimate ensemble training completed")
+                from ..ml.predictor import invalidate_model_cache
+                invalidate_model_cache()
+            else:
+                raise RuntimeError(f"Ultimate trainer failed: {result.stderr[-500:]}")
+        except Exception as e:
+            logger.warning("Ultimate trainer failed, falling back to standard", error=str(e))
+            await asyncio.to_thread(
+                train_signal_model_sync, NIFTY_50, "5y",
+                forward_days=5, threshold=2.0,
+            )
         
         # Check if training succeeded
         status = get_training_status()

@@ -77,6 +77,7 @@ async def start_scheduler() -> None:
         job_ingest_news,
         job_generate_signals,
         job_auto_trade_check,
+        job_check_position_exits,
         job_daily_email_report,
         job_weekly_digest,
     )
@@ -117,6 +118,16 @@ async def start_scheduler() -> None:
         trigger=IntervalTrigger(minutes=5, timezone=IST),
         id="auto_trade",
         name="Auto-Trade Execution Check",
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    # ── Position Exit Manager: every 2 min (trailing stops, target/SL) ──
+    _scheduler.add_job(
+        job_check_position_exits,
+        trigger=IntervalTrigger(minutes=2, timezone=IST),
+        id="position_exits",
+        name="Position Exit Manager (Trailing Stops)",
         max_instances=1,
         replace_existing=True,
     )

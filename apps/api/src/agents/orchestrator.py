@@ -18,6 +18,7 @@ from .research_agents import (
     MacroAgent,
     SectorAgent,
 )
+from .ml_agent import MLModelAgent
 
 logger = structlog.get_logger()
 
@@ -55,19 +56,28 @@ class SynthesizedSignal:
         }
 
 
-# Default agent weights — used until enough accuracy data is collected
+# Default agent weights — ML model gets highest weight (it's data-driven)
 DEFAULT_AGENT_WEIGHTS = {
-    "technical": 0.30,
-    "derivatives": 0.25,
-    "sentiment": 0.15,
-    "macro": 0.15,
-    "sector": 0.15,
+    "ml_model": 0.25,     # XGBoost trained model — most objective
+    "technical": 0.25,    # Chart indicators
+    "derivatives": 0.20,  # Options/Greeks/PCR
+    "sentiment": 0.10,    # News sentiment
+    "macro": 0.10,        # VIX/FII/DII
+    "sector": 0.10,       # Sector rotation
 }
 
 MIN_ACTION_NET_SCORE = 0.22
-MIN_ACTION_CONFIDENCE = 68.0
 MIN_ACTION_RISK_REWARD = 1.8
 MIN_SUPPORTING_AGENTS = 3
+
+# Adaptive confidence thresholds by regime
+CONFIDENCE_THRESHOLDS = {
+    "normal":   65.0,
+    "low_vol":  60.0,  # Low vol = easier to predict, lower bar OK
+    "high_vol": 78.0,  # High vol = harder, need more conviction
+    "unknown":  70.0,
+}
+MIN_ACTION_CONFIDENCE = 68.0  # fallback
 
 # Bayesian weight tracker — updated as signals prove correct or incorrect
 _agent_accuracy: dict[str, dict] = {
@@ -130,6 +140,7 @@ async def run_research_pipeline(symbol: str) -> SynthesizedSignal:
     Every agent runs independently, then results are weighted and combined.
     """
     agents = [
+        MLModelAgent(),       # XGBoost trained model — data-driven signal
         TechnicalAgent(),
         DerivativesAgent(),
         SentimentAgent(),
@@ -166,6 +177,25 @@ async def run_research_pipeline(symbol: str) -> SynthesizedSignal:
             signal.reasoning = enriched
     except Exception as exc:
         logger.debug("GPT enrichment skipped", reason=str(exc))
+
+    # Attach recommended strategy based on conditions
+    try:
+        from ..knowledge.proven_strategies import get_strategy_for_conditions
+        from ..quant.time_features import ExpiryCycle
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        expiry_info = ExpiryCycle.get_features()
+        strategy_rec = get_strategy_for_conditions(
+            regime=signal.regime,
+            vix=next((r.data.get("vix", 15) for r in valid_results if r.agent_name == "macro"), 15),
+            is_expiry=expiry_info.get("is_expiry_day", False),
+            time_hour=now.hour,
+        )
+        signal.reasoning += f" | Recommended: {strategy_rec.get('strategy', 'WAIT')} — {strategy_rec.get('reason', '')}"
+    except Exception:
+        pass
 
     logger.info("Research pipeline complete", symbol=symbol, action=signal.action, confidence=signal.confidence)
     return signal
@@ -240,14 +270,15 @@ def _synthesize(symbol: str, results: list[AgentResult]) -> SynthesizedSignal:
 
     supporting_agents = _count_supporting_agents(results, action) if action in {"BUY", "SELL"} else 0
 
+    # Adaptive confidence threshold based on regime
+    regime_confidence = CONFIDENCE_THRESHOLDS.get(regime, MIN_ACTION_CONFIDENCE)
+
     if action in {"BUY", "SELL"}:
-        if confidence < MIN_ACTION_CONFIDENCE:
+        if confidence < regime_confidence:
             action = "HOLD"
         elif rr < MIN_ACTION_RISK_REWARD:
             action = "HOLD"
         elif supporting_agents < MIN_SUPPORTING_AGENTS:
-            action = "HOLD"
-        elif regime == "high_vol" and confidence < 75:
             action = "HOLD"
 
     # Build reasoning
@@ -255,14 +286,12 @@ def _synthesize(symbol: str, results: list[AgentResult]) -> SynthesizedSignal:
     reasoning = f"Multi-agent consensus: {action}. Agents: {'; '.join(reasons)}"
     if action == "HOLD":
         filters = []
-        if confidence < MIN_ACTION_CONFIDENCE:
-            filters.append(f"confidence below {MIN_ACTION_CONFIDENCE:.0f}")
+        if confidence < regime_confidence:
+            filters.append(f"confidence {confidence:.0f}% below {regime} threshold {regime_confidence:.0f}%")
         if rr < MIN_ACTION_RISK_REWARD:
-            filters.append(f"risk-reward below {MIN_ACTION_RISK_REWARD:.1f}")
+            filters.append(f"risk-reward {rr:.1f} below {MIN_ACTION_RISK_REWARD:.1f}")
         if supporting_agents and supporting_agents < MIN_SUPPORTING_AGENTS:
-            filters.append(f"only {supporting_agents} supporting agents")
-        if regime == "high_vol":
-            filters.append("high-volatility regime")
+            filters.append(f"only {supporting_agents}/{MIN_SUPPORTING_AGENTS} supporting agents")
         if filters:
             reasoning += f". Capital-preservation filter kept trade inactive: {', '.join(filters)}"
 

@@ -212,6 +212,23 @@ async def job_generate_signals() -> None:
                         signal_dict,
                     )
 
+                    # Track signal for outcome measurement
+                    try:
+                        from ..agents.outcome_tracker import outcome_tracker
+                        outcome_tracker.record_signal(
+                            symbol=symbol,
+                            action=signal.action,
+                            entry_price=signal.entry_price,
+                            target_price=signal.target_price,
+                            stop_loss=signal.stop_loss,
+                            agent_signals={
+                                r.get("agent", ""): {"signal": r.get("signal"), "confidence": r.get("confidence")}
+                                for r in signal.agent_results
+                            },
+                        )
+                    except Exception:
+                        pass
+
             except Exception as e:
                 logger.error("Signal generation failed", symbol=symbol, error=str(e))
 
@@ -306,6 +323,54 @@ async def job_weekly_digest() -> None:
 
     except Exception as e:
         logger.error("Weekly digest failed", error=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════
+# JOB 7: Position Manager — check exits every minute
+# ═══════════════════════════════════════════════════════════════
+
+async def job_check_position_exits() -> None:
+    """Check open positions for target/SL/trailing stop exits."""
+    if not is_market_hours():
+        return
+
+    try:
+        from .position_manager import position_manager
+        from ..services.market_data_service import get_market_data_provider
+
+        open_pos = position_manager.get_open_positions()
+        if not open_pos:
+            return
+
+        # Fetch current prices for all open positions
+        provider = get_market_data_provider()
+        symbols = list(set(p["symbol"] for p in open_pos))
+        current_prices = {}
+        for sym in symbols:
+            try:
+                quote = await provider.get_quote(sym)
+                current_prices[sym] = float(quote.price)
+            except Exception:
+                pass
+
+        if current_prices:
+            closed = position_manager.check_exits(current_prices)
+            if closed:
+                total_pnl = sum(p.get("pnl", 0) for p in closed)
+                push_feed(
+                    "POSITION",
+                    f"Closed {len(closed)} positions | Net P&L: Rs {total_pnl:,.0f}",
+                )
+
+            # Also check outcome tracker for signal accuracy
+            try:
+                from ..agents.outcome_tracker import outcome_tracker
+                outcome_tracker.check_outcomes(current_prices)
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error("Position exit check failed", error=str(e))
 
 
 # ── Control functions ──

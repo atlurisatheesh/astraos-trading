@@ -24,6 +24,21 @@ async def lifespan(app: FastAPI):
         llm=settings.llm_provider,
     )
 
+    # Run database migrations on startup (production)
+    if settings.app_env == "production":
+        try:
+            import subprocess, sys
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                capture_output=True, text=True, cwd="/app",
+            )
+            if result.returncode == 0:
+                logger.info("Database migrations applied")
+            else:
+                logger.warning("Migration warning", stderr=result.stderr[-300:])
+        except Exception as e:
+            logger.error("Migration failed", error=str(e))
+
     # Start the continuous monitoring scheduler
     try:
         from .scheduler.engine import start_scheduler

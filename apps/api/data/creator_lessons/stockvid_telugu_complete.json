@@ -1,0 +1,233 @@
+{
+  "creator": "stockvid.telugu",
+  "channel": "StockVid Telugu",
+  "source": "YouTube @stockvidtelugu + Instagram @stockvid.telugu",
+  "language": "Telugu",
+  "description": "Telugu stock market educator teaching candlestick patterns, intraday strategies, options trading, and risk management",
+  "strategies": [
+    {
+      "name": "Pre-Open Gap Strategy",
+      "type": "intraday",
+      "description": "Analyze pre-open session (9:00-9:08 AM) to identify gap up/down, then trade the first 15-minute candle breakout/breakdown",
+      "rules": {
+        "entry_conditions": [
+          "Wait for 9:15-9:30 candle to complete (Opening Range)",
+          "Gap up > 0.5%: Wait for Opening Range High (ORH) breakout to buy",
+          "Gap down > 0.5%: Wait for Opening Range Low (ORL) breakdown to sell",
+          "Volume must be above 20-day average in the first 15 minutes",
+          "Do NOT trade if gap is > 2% (too extended, likely to fill)"
+        ],
+        "exit_conditions": [
+          "Target: 1:2 risk-reward minimum",
+          "Stop loss: Other side of Opening Range",
+          "Time stop: Exit by 12:30 PM if target not hit",
+          "Trail stop to breakeven after 1:1 move"
+        ],
+        "risk_management": [
+          "Risk max 1% of capital per trade",
+          "No new entries after 2:00 PM",
+          "Skip if VIX > 20 (too volatile for gap plays)"
+        ]
+      },
+      "indicators_used": ["Opening Range (15min)", "VWAP", "Volume", "Gap %"],
+      "best_for": "Bank Nifty, Nifty 50 stocks with high liquidity"
+    },
+    {
+      "name": "Bullish Marubozu Entry",
+      "type": "swing",
+      "description": "Enter long when a Bullish Marubozu candle forms at support with volume confirmation",
+      "rules": {
+        "entry_conditions": [
+          "Bullish Marubozu (body > 90% of total range)",
+          "Close must be near the HIGH of the candle",
+          "Must form at or near a support level (S1, SMA50, or previous swing low)",
+          "Volume > 1.5x average volume (institutional participation)",
+          "RSI must be between 30-60 (not overbought)"
+        ],
+        "exit_conditions": [
+          "Target: Next resistance level or 2x ATR from entry",
+          "Stop loss: Low of the Marubozu candle",
+          "If next candle closes below Marubozu midpoint — exit immediately"
+        ],
+        "risk_management": [
+          "Position size = (1% of capital) / (Entry - Stop Loss)",
+          "Do not enter if stop loss distance > 3% of entry price"
+        ]
+      },
+      "indicators_used": ["Candlestick pattern", "Volume", "RSI", "Support levels"],
+      "best_for": "Swing trades (2-5 day holding)"
+    },
+    {
+      "name": "Bullish Engulfing Reversal",
+      "type": "swing",
+      "description": "Buy signal when bullish engulfing pattern forms after a downtrend with volume spike",
+      "rules": {
+        "entry_conditions": [
+          "Stock must be in downtrend (price below SMA20, at least 5 red candles in last 8)",
+          "Bullish engulfing: Green candle body fully covers previous red candle body",
+          "Engulfing candle volume > previous candle volume",
+          "RSI below 40 (oversold territory)",
+          "Not near earnings date (min 5 days away)"
+        ],
+        "exit_conditions": [
+          "Target 1: SMA20 (first resistance in downtrend)",
+          "Target 2: Previous swing high",
+          "Stop loss: Low of the engulfing candle",
+          "Trail stop after Target 1 hit"
+        ],
+        "risk_management": [
+          "Do NOT buy engulfing in a crisis regime (VIX > 25)",
+          "Confirm with next candle — must close above engulfing close"
+        ]
+      },
+      "indicators_used": ["Candlestick", "SMA20", "RSI", "Volume"],
+      "best_for": "Reversal trades at market bottoms"
+    },
+    {
+      "name": "Shooting Star Short",
+      "type": "intraday",
+      "description": "Sell/short when shooting star forms at resistance after an uptrend",
+      "rules": {
+        "entry_conditions": [
+          "Shooting star: Upper shadow > 2x body, small/no lower shadow",
+          "Must form at resistance (R1, SMA50, previous swing high, or round number)",
+          "Stock in uptrend (5+ green candles in last 8)",
+          "RSI above 65 (approaching overbought)",
+          "Ideally near VWAP upper band"
+        ],
+        "exit_conditions": [
+          "Target: Previous support or 1.5x ATR below entry",
+          "Stop loss: High of the shooting star",
+          "Exit if next candle closes above shooting star high"
+        ],
+        "risk_management": [
+          "Reduce position size by 50% on expiry days",
+          "Skip if ADX < 20 (weak trend, pattern less reliable)"
+        ]
+      },
+      "indicators_used": ["Candlestick", "RSI", "VWAP", "Support/Resistance"],
+      "best_for": "Intraday shorts and put buying"
+    },
+    {
+      "name": "Expiry Day Theta Play",
+      "type": "options_intraday",
+      "description": "Sell OTM options on expiry day (Thursday) to capture theta decay, with strict risk management",
+      "rules": {
+        "entry_conditions": [
+          "Only on Bank Nifty weekly expiry (Thursday)",
+          "Sell options that are 300+ points OTM from current spot",
+          "Enter between 9:30-10:30 AM (after opening chaos settles)",
+          "VIX must be below 18 (avoid selling in high volatility)",
+          "Do NOT sell options if market has gapped > 1%"
+        ],
+        "exit_conditions": [
+          "Target: 50% of premium received (take profit early)",
+          "Stop loss: 2x of premium received (if sold at Rs 30, SL at Rs 60)",
+          "Time exit: Close all positions by 3:00 PM regardless",
+          "If spot moves within 100 points of sold strike — exit immediately"
+        ],
+        "risk_management": [
+          "Maximum 2 lots per trade",
+          "Total margin used: < 30% of capital",
+          "NEVER carry expiry positions overnight",
+          "If 2 consecutive expiry losses, skip next expiry"
+        ]
+      },
+      "indicators_used": ["India VIX", "PCR", "Max Pain", "OI at strikes"],
+      "best_for": "Bank Nifty Thursday weekly expiry"
+    },
+    {
+      "name": "Liquidity Sweep Reversal",
+      "type": "intraday",
+      "description": "Smart money hunts stop losses at obvious levels, then reverses. Enter after the sweep is confirmed",
+      "rules": {
+        "entry_conditions": [
+          "Price breaks below a clear support (previous day low, swing low, round number)",
+          "Within 1-5 candles, price RECLAIMS back above the broken level",
+          "The sweep candle shows long lower shadow (buying at the lows)",
+          "Volume spike on the reclaim candle (smart money entering)",
+          "RSI shows bullish divergence (price made new low, RSI didn't)"
+        ],
+        "exit_conditions": [
+          "Target: The high of the range before the sweep",
+          "Stop loss: Low of the liquidity sweep candle",
+          "If price fails to hold reclaim after 3 candles — exit"
+        ],
+        "risk_management": [
+          "Only trade this if the sweep is clear and clean (not gradual drift)",
+          "Requires minimum 15-minute chart for reliability",
+          "Most reliable between 9:30-11:30 AM"
+        ]
+      },
+      "indicators_used": ["Price action", "Volume", "RSI divergence", "Support levels"],
+      "best_for": "Bank Nifty, high-volume NIFTY stocks"
+    },
+    {
+      "name": "BTST (Buy Today Sell Tomorrow)",
+      "type": "overnight",
+      "description": "Buy stocks showing end-of-day momentum breakout, sell next morning for gap-up profit",
+      "rules": {
+        "entry_conditions": [
+          "Buy between 2:30-3:15 PM (last hour strength)",
+          "Stock must close above day's VWAP",
+          "Volume in last 1 hour > average hourly volume",
+          "Stock breaking above a resistance level on daily chart",
+          "Relative strength vs NIFTY > 0 (stock outperforming index)",
+          "No negative news or upcoming earnings within 3 days"
+        ],
+        "exit_conditions": [
+          "Sell at next day open if gap up > 1%",
+          "If gap down at open, hold till 9:45 and exit at VWAP",
+          "Maximum hold: sell by 10:30 AM next day regardless",
+          "If stock opens flat: trail with 15-min candle low"
+        ],
+        "risk_management": [
+          "Risk max 2% of capital per BTST trade",
+          "Max 3 BTST positions at a time",
+          "Avoid BTST on Friday (weekend risk)",
+          "Avoid BTST before RBI policy, budget, or election results"
+        ]
+      },
+      "indicators_used": ["VWAP", "Volume", "Relative Strength", "Resistance breakout"],
+      "best_for": "Large-cap stocks with high delivery %"
+    },
+    {
+      "name": "Doji at Support/Resistance",
+      "type": "swing",
+      "description": "Doji candle at a key level signals indecision — trade the breakout of the Doji range",
+      "rules": {
+        "entry_conditions": [
+          "Doji candle (body < 10% of total range) at a key level",
+          "Key levels: SMA200, pivot point, previous month high/low, psychological round number",
+          "Wait for NEXT candle to confirm direction",
+          "If next candle closes above Doji high → BUY",
+          "If next candle closes below Doji low → SELL"
+        ],
+        "exit_conditions": [
+          "Target: 2x the Doji total range from breakout point",
+          "Stop loss: Opposite end of Doji range",
+          "Time stop: 3 trading days max hold"
+        ],
+        "risk_management": [
+          "Dragonfly Doji at support = stronger buy signal",
+          "Gravestone Doji at resistance = stronger sell signal",
+          "Skip if the Doji range is very wide (> 2% of price) — too much risk"
+        ]
+      },
+      "indicators_used": ["Candlestick", "Support/Resistance", "SMA200"],
+      "best_for": "Swing trading at turning points"
+    }
+  ],
+  "general_rules": [
+    "Never risk more than 1-2% of capital on a single trade",
+    "Always have a stop loss BEFORE entering the trade",
+    "Do not trade in the first 15 minutes (9:15-9:30) — let the market settle",
+    "Do not trade on RBI policy days, budget day, or election result days",
+    "If you lose 2 trades in a row, stop trading for the day",
+    "Book 50% profit at Target 1, trail the rest",
+    "Volume confirmation is mandatory — no volume = no trade",
+    "Do not average down a losing position",
+    "Do not trade more than 3 stocks at a time",
+    "Maintain a trading journal — write every trade with emotion and reason"
+  ]
+}

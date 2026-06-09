@@ -158,30 +158,46 @@ async def predict_signal(symbol: str) -> dict:
         # ── Predict ──────────────────────────────────────────────────────────
         X = latest.values
         probabilities = model.predict_proba(X)[0]
+        is_binary = metrics.get("binary", False) or len(probabilities) == 2
 
-        prob_dict = {
-            LABEL_NAMES[i]: round(float(p) * 100, 1)
-            for i, p in enumerate(probabilities)
-        }
+        if is_binary:
+            # Binary model: class 0=DOWN(SELL), class 1=UP(BUY)
+            prob_down = float(probabilities[0]) * 100
+            prob_up = float(probabilities[1]) * 100
+            prob_dict = {"SELL": round(prob_down, 1), "BUY": round(prob_up, 1)}
 
-        # Pick action using learned confidence threshold (fallback to constants).
+            if prob_up > prob_down:
+                action = "BUY"
+                raw_confidence = prob_up
+            else:
+                action = "SELL"
+                raw_confidence = prob_down
+
+        else:
+            # 3-class model: 0=SELL, 1=HOLD, 2=BUY
+            prob_dict = {
+                LABEL_NAMES[i]: round(float(p) * 100, 1)
+                for i, p in enumerate(probabilities)
+            }
+            predicted_class = int(np.argmax(probabilities))
+            raw_confidence = float(probabilities[predicted_class]) * 100
+            action = LABEL_NAMES.get(predicted_class, "HOLD")
+
+        # Confidence threshold (regime-aware)
         thr_normal = float(metrics.get("trade_confidence_threshold_best_normal_pct", _BASE_CONFIDENCE_THRESHOLD) or _BASE_CONFIDENCE_THRESHOLD)
         thr_crisis = float(metrics.get("trade_confidence_threshold_best_crisis_pct", _HIGH_VOL_CONFIDENCE_THRESHOLD) or _HIGH_VOL_CONFIDENCE_THRESHOLD)
         min_conf = thr_crisis if is_crisis else thr_normal
-        predicted_class = int(np.argmax(probabilities))
-        raw_confidence = float(probabilities[predicted_class]) * 100
-        action = LABEL_NAMES.get(predicted_class, "HOLD")
 
-        # Downgrade to HOLD if confidence is below the regime threshold
         if action in ("BUY", "SELL") and raw_confidence < min_conf:
             action = "HOLD"
 
         result = {
             "symbol": symbol,
             "signal": action,
-            "action": action,           # backward-compat alias
+            "action": action,
             "confidence": round(raw_confidence, 1),
             "probabilities": prob_dict,
+            "binary": is_binary,
             "regime": regime,
             "regime_indicators": regime_info.get("indicators", {}),
             "trade_hit_rate_best_overall_pct": metrics.get("trade_hit_rate_best_overall_pct"),

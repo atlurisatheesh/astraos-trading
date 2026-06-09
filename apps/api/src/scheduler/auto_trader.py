@@ -20,8 +20,12 @@ from ..services.email_service import send_trade_alert
 from ..services.telegram_service import notify_trade_execution
 from ..risk.circuit_breaker import circuit_breaker
 from ..risk.position_sizer import calculate_position_size
+from ..risk.earnings_guard import is_earnings_blackout
 from ..quant.time_features import IntradayWindow
 from ..core.security_hardened import AuditEvent
+from ..knowledge.creator_strategies import evaluate_creator_gates
+from ..ml.model_monitor import model_monitor
+from .position_manager import position_manager
 
 logger = structlog.get_logger()
 
@@ -160,6 +164,35 @@ async def execute_auto_trades(signals: dict[str, dict], config: dict) -> None:
             if entry_price <= 0:
                 continue
 
+            # Earnings blackout check
+            blackout, blackout_reason = is_earnings_blackout(symbol)
+            if blackout:
+                push_feed("RISK", blackout_reason)
+                logger.info("Trade blocked by earnings blackout", symbol=symbol)
+                continue
+
+            # Creator strategy quality gate (StockVid Telugu rules)
+            creator_check = evaluate_creator_gates(
+                signal=signal,
+                now=datetime.now(IST),
+                rsi=signal.get("rsi", 50),
+                volume_ratio=signal.get("rel_volume", 1.0),
+                above_vwap=signal.get("above_vwap", True),
+                candle_patterns=signal.get("candlestick_patterns", []),
+                regime=signal.get("regime", "normal"),
+            )
+            if not creator_check["allowed"]:
+                push_feed(
+                    "RISK",
+                    f"Creator rules blocked {symbol}: {'; '.join(creator_check['reasons'][:2])}",
+                )
+                continue
+            if creator_check["matching_strategies"]:
+                push_feed(
+                    "STRATEGY",
+                    f"{symbol} matches: {', '.join(creator_check['matching_strategies'][:2])}",
+                )
+
             if risk_reward < min_risk_reward:
                 logger.info(
                     "Trade skipped due to low risk reward",
@@ -211,6 +244,9 @@ async def execute_auto_trades(signals: dict[str, dict], config: dict) -> None:
                 "broker": "paper",
             }
             _daily_trades.append(trade)
+
+            # Register with position manager for exit management
+            position_manager.add_position(trade)
 
             push_feed(
                 "AUTO_TRADE",
