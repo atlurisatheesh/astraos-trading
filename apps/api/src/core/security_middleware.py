@@ -92,7 +92,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
 
         # Remove server identification headers
-        response.headers.pop("Server", None)
-        response.headers.pop("X-Powered-By", None)
+        if "server" in response.headers:
+            del response.headers["server"]
+        if "x-powered-by" in response.headers:
+            del response.headers["x-powered-by"]
 
         return response

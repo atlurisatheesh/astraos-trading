@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from ..core.database import async_session_maker
+from ..core.database import async_session_factory
 from ..models.position import Position
 from ..models.user import User
 from ..scheduler.engine import push_feed
@@ -39,7 +39,7 @@ async def _sync_positions() -> None:
         return
 
     try:
-        async with async_session_maker() as db:
+        async with async_session_factory() as db:
             result = await db.execute(
                 select(Position).where(Position.status == "OPEN").join(User)
             )
@@ -63,7 +63,7 @@ async def _handle_trigger(
 
     try:
         # Load user to get broker config
-        async with async_session_maker() as db:
+        async with async_session_factory() as db:
             user = await db.get(User, position.user_id)
             if not user or not user.broker_config:
                 logger.error("Cannot auto-execute exit: No broker configured for user.")
@@ -162,7 +162,7 @@ async def monitor_tick(symbol: str, price_data: dict[str, Any]) -> None:
                     # Move SL up by trailing_step
                     new_sl = pos.stop_loss + trailing_step
                     try:
-                        async with async_session_maker() as db:
+                        async with async_session_factory() as db:
                             db_pos = await db.get(Position, pos.id)
                             db_pos.stop_loss = new_sl
                             await db.commit()
