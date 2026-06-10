@@ -89,6 +89,19 @@ def create_app() -> FastAPI:
     # Exception handlers
     app.add_exception_handler(AstraOSError, astraos_exception_handler)
 
+    # Debug: catch-all handler to surface actual errors (remove after fix)
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+    import traceback as tb
+
+    @app.exception_handler(Exception)
+    async def debug_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc), "type": type(exc).__name__,
+                     "trace": tb.format_exc()[-1000:]},
+        )
+
     # Routers
     from .routers import auth, watchlists, signals, orders, positions
     from .routers import market, news, backtest, research, websocket as ws_router
