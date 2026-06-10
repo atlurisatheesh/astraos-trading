@@ -154,7 +154,7 @@ def create_app() -> FastAPI:
     @app.get("/debug/db", tags=["Debug"])
     async def debug_db():
         from .core.database import engine, Base
-        from sqlalchemy import inspect, text
+        from sqlalchemy import text
         tables_in_metadata = sorted(Base.metadata.tables.keys())
         try:
             async with engine.connect() as conn:
@@ -167,6 +167,28 @@ def create_app() -> FastAPI:
             "metadata_tables": tables_in_metadata,
             "db_tables": tables_in_db,
         }
+
+    @app.post("/debug/init-db", tags=["Debug"])
+    async def debug_init_db():
+        import traceback as tb
+        from .core.database import engine, Base
+        from .models.user import User  # noqa
+        from .models.instrument import Instrument  # noqa
+        from .models.trading import (  # noqa
+            Alert, AuditLog, KillSwitchState, NewsArchive, Order,
+            PortfolioSnapshot, Position, RiskEvent, Signal, Strategy,
+            TradeJournal, UserSettings, Watchlist,
+        )
+        from sqlalchemy import text
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            async with engine.connect() as conn:
+                result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+                tables = [row[0] for row in result]
+            return {"status": "ok", "tables_created": sorted(tables)}
+        except Exception as e:
+            return {"status": "error", "error": str(e), "trace": tb.format_exc()}
 
     @app.get("/health", tags=["Health"])
     async def health_check():
