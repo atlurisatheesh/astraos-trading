@@ -28,12 +28,22 @@ async def lifespan(app: FastAPI):
     # Ensure all tables exist on startup (works for both SQLite and PostgreSQL)
     try:
         from .core.database import engine, Base
-        from . import models  # noqa: F401 — import all models so metadata is populated
+        # Import models to populate Base.metadata — must happen before create_all
+        from .models.user import User  # noqa: F401
+        from .models.instrument import Instrument  # noqa: F401
+        from .models.trading import (  # noqa: F401
+            Alert, AuditLog, KillSwitchState, NewsArchive, Order,
+            PortfolioSnapshot, Position, RiskEvent, Signal, Strategy,
+            TradeJournal, UserSettings, Watchlist,
+        )
+        tables_before = set(Base.metadata.tables.keys())
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables ensured")
+        tables_after = set(Base.metadata.tables.keys())
+        logger.info("Database tables ensured", tables=sorted(tables_after))
     except Exception as e:
-        logger.warning("DB create_all failed", error=str(e))
+        import traceback
+        logger.error("DB create_all FAILED", error=str(e), trace=traceback.format_exc()[-500:])
 
     # Start the continuous monitoring scheduler
     try:
