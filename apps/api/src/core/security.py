@@ -69,6 +69,21 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+def create_reset_token(user_id: str) -> str:
+    """Create a short-lived password-reset token (15 minutes)."""
+    now = datetime.now(timezone.utc)
+    to_encode = {
+        "sub": user_id,
+        "exp": now + timedelta(minutes=15),
+        "iat": now,
+        "type": "reset",
+        "iss": "astraos",
+        "aud": "astraos-api",
+        "jti": secrets.token_hex(16),
+    }
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
 def create_refresh_token(data: dict) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()

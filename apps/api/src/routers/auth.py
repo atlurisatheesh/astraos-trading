@@ -10,6 +10,7 @@ from ..core.dependencies import get_current_user
 from ..core.security import (
     create_access_token,
     create_refresh_token,
+    create_reset_token,
     decode_token,
     hash_password,
     verify_password,
@@ -118,6 +119,83 @@ async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
         access_token=create_access_token({"sub": str(user.id)}),
         refresh_token=create_refresh_token({"sub": str(user.id)}),
     )
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    email: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a password reset.
+
+    If SMTP is configured, a reset link is emailed to the user.
+    Otherwise (dev mode) the reset token is returned directly so the
+    frontend can complete the flow without an email provider.
+    Always responds with the same message regardless of whether the
+    email exists, to avoid account enumeration.
+    """
+    from ..services import email_service
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    generic = {"message": "If that email is registered, a reset link has been sent."}
+    if not user:
+        return generic
+
+    token = create_reset_token(str(user.id))
+
+    if email_service.is_configured():
+        import os
+        frontend = os.getenv("FRONTEND_URL", "https://web-livid-one-87.vercel.app")
+        link = f"{frontend}/reset-password?token={token}"
+        html = f"""
+        <div style="font-family:'Segoe UI',sans-serif; max-width:480px; margin:auto; border:1px solid #e0e0e0; border-radius:12px; overflow:hidden;">
+          <div style="background:linear-gradient(135deg,#638cff,#a78bfa); padding:16px 24px;">
+            <h2 style="margin:0; color:white;">Reset your Quantus password</h2>
+          </div>
+          <div style="padding:24px;">
+            <p>We received a request to reset your password. This link expires in 15 minutes.</p>
+            <p style="margin:20px 0;"><a href="{link}" style="background:#638cff; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none;">Reset Password</a></p>
+            <p style="font-size:12px; color:#888;">If you didn't request this, you can safely ignore this email.</p>
+          </div>
+        </div>
+        """
+        await email_service.send_email("Reset your Quantus AI password", html, to=user.email)
+        return generic
+
+    # Dev mode — no SMTP configured: return the token so the UI can proceed.
+    return {**generic, "dev_mode": True, "reset_token": token}
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    token: str = Body(..., embed=True),
+    new_password: str = Body(..., embed=True, min_length=8),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set a new password using a valid reset token."""
+    payload = decode_token(token)
+
+    if payload.get("type") != "reset":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type",
+        )
+
+    result = await db.execute(select(User).where(User.id == payload.get("sub")))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.password_hash = hash_password(new_password)
+    await db.flush()
+
+    from ..core.security import revoke_token
+    if payload.get("jti"):
+        revoke_token(payload["jti"])  # single-use token
+
+    return MessageResponse(message="Password reset successful. You can now log in.")
 
 
 @router.get("/me", response_model=UserResponse)
