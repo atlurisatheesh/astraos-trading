@@ -16,9 +16,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Create required directories and purge any stale bytecode
-RUN mkdir -p data/models data/creator_lessons && \
-    find /app -name "*.pyc" -delete && \
-    find /app -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+RUN mkdir -p data/models data/creator_lessons
+RUN find /app -name "*.pyc" -delete; find /app -type d -name "__pycache__" | xargs rm -rf 2>/dev/null; true
 
 ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
