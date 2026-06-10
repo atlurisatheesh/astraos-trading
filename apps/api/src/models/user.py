@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from ..core.db_types import JSONB, UUID
 
 from ..core.database import Base
 

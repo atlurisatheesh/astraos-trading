@@ -8,8 +8,8 @@ from sqlalchemy import (
     Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from ..core.db_types import JSONB, UUID, ARRAY_JSON as ARRAY
 
 from ..core.database import Base
 
