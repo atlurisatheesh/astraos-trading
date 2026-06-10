@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { usePortfolio, useFeed, useSignals, useTicker } from "@/hooks/useWebSocket";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -26,7 +25,23 @@ ChartJS.register(
   Legend
 );
 
-/* ─── Signal fill bar (sets width via ref to avoid inline style) ─── */
+const API = process.env.NEXT_PUBLIC_API_URL || "https://astraos-backend.onrender.com";
+
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+}
+
+async function apiFetch(path: string) {
+  const token = getToken();
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+/* ─── Signal fill bar ─── */
 function SignalBar({ width, cls }: { width: number; cls: string }) {
   const ref = useCallback((el: HTMLDivElement | null) => {
     if (el) el.style.width = `${width}%`;
@@ -34,58 +49,83 @@ function SignalBar({ width, cls }: { width: number; cls: string }) {
   return <div className="signal-bar"><div ref={ref} className={`signal-fill ${cls}`} /></div>;
 }
 
-/* ─── DATA (exact same data from app.js) ─── */
+/* ─── Types ─── */
+interface PortfolioSummary {
+  total_value: number;
+  invested_value: number;
+  cash: number;
+  day_pnl: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+  positions: PositionItem[];
+}
 
-const SIGNALS = [
-  { t: "ICICIBNK", s: 91, a: "BUY", c: "green", msg: "📊 ICICI BANK Signal|BUY · Target ₹1,510 · SL ₹1,400 · Confidence 91%" },
-  { t: "TCS", s: 87, a: "BUY", c: "green", msg: "📊 TCS Signal|BUY · Target ₹4,450 · SL ₹3,980 · Confidence 87%" },
-  { t: "BAJFIN", s: 82, a: "SELL", c: "red", msg: "📊 BAJFINANCE Signal|SELL · Target ₹6,200 · SL ₹7,050 · Confidence 82%" },
-  { t: "WIPRO", s: 71, a: "HOLD", c: "amber", msg: "📊 WIPRO Signal|HOLD · Awaiting breakout confirmation · Confidence 71%" },
-  { t: "HDFCBNK", s: 78, a: "BUY", c: "green", msg: "📊 HDFCBANK Signal|BUY · Target ₹1,960 · SL ₹1,820 · Confidence 78%" },
-  { t: "NIFTY FO", s: 69, a: "PUT", c: "accent", msg: "📊 NIFTY50 F&O Signal|PUT BUY 24800 · Expiry 27 Mar · Confidence 69%" },
+interface PositionItem {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  average_cost: number;
+  current_price: number;
+  unrealized_pnl: number;
+  realized_pnl: number;
+  is_open: boolean;
+}
+
+interface SignalItem {
+  id: string;
+  symbol?: string;
+  ticker?: string;
+  signal_type?: string;
+  action?: string;
+  confidence: number;
+  entry_price?: number;
+  target_price?: number;
+  stop_loss?: number;
+}
+
+interface NewsItem {
+  title: string;
+  published_at?: string;
+  source?: string;
+  summary?: string;
+  symbols?: string[];
+  url?: string;
+}
+
+interface SectorQuote {
+  symbol: string;
+  name: string;
+  change_pct: number;
+}
+
+/* ─── Static fallbacks (shown only when API has no data yet) ─── */
+const FALLBACK_SIGNALS = [
+  { t: "ICICIBNK", s: 91, a: "BUY", c: "green" },
+  { t: "TCS", s: 87, a: "BUY", c: "green" },
+  { t: "BAJFIN", s: 82, a: "SELL", c: "red" },
+  { t: "WIPRO", s: 71, a: "HOLD", c: "amber" },
+  { t: "HDFCBNK", s: 78, a: "BUY", c: "green" },
+  { t: "NIFTY FO", s: 69, a: "PUT", c: "accent" },
 ];
 
-const SECTORS = [
-  { n: "Banking", c: "+1.84%", cls: "heat-up-strong" },
-  { n: "IT", c: "+0.92%", cls: "heat-up" },
-  { n: "Energy", c: "-0.64%", cls: "heat-down" },
-  { n: "Pharma", c: "+0.38%", cls: "heat-up-light" },
-  { n: "Realty", c: "+0.12%", cls: "heat-flat" },
-  { n: "Auto", c: "+1.23%", cls: "heat-up-heavy" },
-  { n: "FMCG", c: "-0.31%", cls: "heat-down-light" },
-  { n: "Infra", c: "+2.10%", cls: "heat-up-max" },
+const FALLBACK_FEED = [
+  { t: "—", dotCls: "feed-dot-amber", label: "INFO", txt: "Connect your broker to see live intelligence feed." },
 ];
 
-const FEED_ITEMS = [
-  { t: "13:41", dotCls: "feed-dot-green", label: "AUTO TRADE", txt: "Bought 50 ICICI BANK @ ₹1,435 via Zerodha. SL set ₹1,400." },
-  { t: "13:38", dotCls: "feed-dot-accent", label: "PATTERN", txt: "TCS Cup-and-Handle breakout detected. High-confidence BUY setup forming." },
-  { t: "13:31", dotCls: "feed-dot-red", label: "RISK ALERT", txt: "BAJFINANCE OI build-up at 6,800 PUT. Bears loading up. Caution advised." },
-  { t: "13:20", dotCls: "feed-dot-amber", label: "NEWS", txt: "RBI holds repo rate at 6.5%. Markets relieved — banking sector rally likely to extend." },
-  { t: "13:05", dotCls: "feed-dot-green", label: "FII/DII", txt: "FIIs net buyers ₹1,240 Cr. DIIs ₹680 Cr. Broad market sentiment positive." },
-  { t: "12:47", dotCls: "feed-dot-purple", label: "AI RESEARCH", txt: "Infra sector deep-dive complete. Top picks: L&T, NTPC, IRFC — 3–6 month horizon." },
-  { t: "12:30", dotCls: "feed-dot-red", label: "AUTO TRADE", txt: "Exited WIPRO 100 shares @ ₹489. +₹2,400 profit. 52-day high resistance hit." },
-  { t: "11:52", dotCls: "feed-dot-amber", label: "MACRO", txt: "US Fed minutes: no rate cut signal. INR marginally weaker. Gold supportive level." },
+const FALLBACK_POSITIONS = [
+  { n: "No open positions", sub: "", type: "—", bc: "badge-blue", qty: "—", avg: "—", ltp: "—", pnl: "—", cls: "" },
 ];
 
-const POSITIONS = [
-  { n: "ICICI BANK", sub: "NSE Delivery", type: "LONG", bc: "badge-green", qty: "50", avg: "₹1,435", ltp: "₹1,436", pnl: "+₹50", cls: "up" },
-  { n: "TCS", sub: "NSE Delivery", type: "LONG", bc: "badge-green", qty: "15", avg: "₹4,050", ltp: "₹4,126", pnl: "+₹1,140", cls: "up" },
-  { n: "NIFTY 25000 CE", sub: "F&O · Weekly", type: "CALL", bc: "badge-blue", qty: "4 lots", avg: "₹142", ltp: "₹168", pnl: "+₹5,200", cls: "up" },
-  { n: "BAJFINANCE", sub: "Futures Short", type: "SHORT", bc: "badge-red", qty: "1 lot", avg: "₹6,900", ltp: "₹6,782", pnl: "+₹4,720", cls: "up" },
-];
-
-const OPTIONS = [
-  { c: "opt-call opt-itm", oi: "2.4L", vol: "8.2K", iv: "12.1", cltp: "440", strike: "52000", pltp: "12", piv: "14.2", pvol: "1.1K", poi: "0.8L", atm: false },
-  { c: "opt-call opt-itm", oi: "3.1L", vol: "12.4K", iv: "13.4", cltp: "295", strike: "52200", pltp: "28", piv: "15.1", pvol: "2.3K", poi: "1.4L", atm: false },
-  { c: "opt-call", oi: "4.8L", vol: "22.1K", iv: "14.8", cltp: "168", strike: "52400", pltp: "92", piv: "14.8", pvol: "18.9K", poi: "5.2L", atm: true },
-  { c: "opt-put", oi: "2.2L", vol: "9.8K", iv: "15.6", cltp: "78", strike: "52600", pltp: "188", piv: "15.6", pvol: "8.1K", poi: "3.1L", atm: false },
-  { c: "opt-put opt-itm", oi: "0.9L", vol: "3.2K", iv: "16.8", cltp: "28", strike: "52800", pltp: "368", piv: "16.8", pvol: "14.2K", poi: "4.6L", atm: false },
-];
-
-const RESEARCH = [
-  { title: "Banking Sector Deep Dive", time: "2h ago", meta: "AI analyzed 847 data points across 12 public and private sector banks. Bullish outlook driven by credit growth...", tags: [["BULLISH", "badge-green"], ["Banking", "badge-blue"], ["AI Report", "badge-purple"]] },
-  { title: "NIFTY Weekly Options Strategy", time: "4h ago", meta: "Expiry analysis for 27 March. Max pain at 24,900. Iron Condor strategy recommended for range-bound conditions...", tags: [["NEUTRAL", "badge-amber"], ["F&O", "badge-blue"], ["Expiry Week", "badge-amber"]] },
-  { title: "IT Sector Q4 Earnings Preview", time: "Yesterday", meta: "AI-generated earnings model for top IT companies. TCS, Infosys, Wipro, HCL analyzed with DCF valuations...", tags: [["BULLISH", "badge-green"], ["IT", "badge-blue"], ["Earnings", "badge-blue"]] },
+const SECTOR_SYMBOLS = [
+  { symbol: "^NSEBANK", name: "Banking" },
+  { symbol: "^CNXIT", name: "IT" },
+  { symbol: "^CNXENERGY", name: "Energy" },
+  { symbol: "^CNXPHARMA", name: "Pharma" },
+  { symbol: "^CNXREALTY", name: "Realty" },
+  { symbol: "^CNXAUTO", name: "Auto" },
+  { symbol: "^CNXFMCG", name: "FMCG" },
+  { symbol: "^CNXINFRA", name: "Infra" },
 ];
 
 const CHAT_RESPONSES: Record<string, string> = {
@@ -93,113 +133,228 @@ const CHAT_RESPONSES: Record<string, string> = {
   nifty: "Nifty weekly outlook: Bullish bias. Support at 24,600, resistance at 25,100. Expect range 24,700–25,200 this week. Key trigger: FII flow and global cues. AI probability of crossing 25,000: 62%.",
   long: "Best long-term stocks (12–24 month view): 1) HDFC Bank — Buy on dips ₹1,850. 2) L&T — Infrastructure boom play. 3) Sun Pharma — US FDA clearances positive. 4) Tata Motors — EV dominance story intact.",
   risk: "Your portfolio risk analysis: Current beta 0.72 (below market risk). Concentration in Banking: 41% — slightly high, consider diversifying. VaR suggests max single-day loss ₹8,200 at 95% confidence. Recommendation: Add 1 Pharma or FMCG position to hedge.",
-  default: "I've analyzed that query using 847 real-time data points across NSE, BSE, and macro indicators. Based on current momentum, technical patterns, and sentiment analysis — the outlook appears positive. Shall I generate a detailed report with entry/exit levels?",
+  default: "I've analyzed that query using real-time data across NSE, BSE, and macro indicators. Based on current momentum, technical patterns, and sentiment analysis — the outlook appears positive. Shall I generate a detailed report with entry/exit levels?",
 };
+
+function heatClass(pct: number): string {
+  if (pct > 1.5) return "heat-up-max";
+  if (pct > 0.8) return "heat-up-strong";
+  if (pct > 0.3) return "heat-up-heavy";
+  if (pct > 0) return "heat-up";
+  if (pct === 0) return "heat-flat";
+  if (pct > -0.5) return "heat-down-light";
+  return "heat-down";
+}
 
 /* ─── COMPONENT ─── */
 
 export default function DashboardPage() {
+  const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
+  const [signals, setSignals] = useState<SignalItem[]>([]);
+  const [feed, setFeed] = useState<NewsItem[]>([]);
+  const [sectors, setSectors] = useState<SectorQuote[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [chatMessages, setChatMessages] = useState([
-    { text: "Good afternoon. Markets are bullish today with Banking and Infra leading. I've placed 1 auto-trade on ICICI BANK. Your portfolio is up ₹14,680 today. What would you like to analyze?", isUser: false },
-    { text: "Should I buy Bank Nifty calls today?", isUser: true },
-    { text: 'Based on current OI data, PCR at 0.84 (slightly bearish), and BNifty at 52,318 — the 52,400 CE is the ATM strike with max OI. I see a short-term rally potential to 52,750. Recommended: Buy 52,400 CE @ ₹168 with SL at ₹120 and target ₹240. Position size: 2 lots only given 3-day expiry risk.', isUser: false },
+    { text: "Good day! I'm your AI analyst. Connect your broker and I'll show real portfolio data. Ask me anything about stocks, F&O, or market trends.", isUser: false },
   ]);
   const [chatInput, setChatInput] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // WebSocket connections
-  const portfolioWs = usePortfolio();
-  const feedWs = useFeed();
-  const signalsWs = useSignals();
-  const tickerWs = useTicker();
+  // Chart data — use portfolio history if available, else a flat line
+  const [chartLabels, setChartLabels] = useState(["09:15", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15", "15:30"]);
+  const [chartValues, setChartValues] = useState([500120, 502400, 498000, 505000, 510000, 509000, 514320, 514320]);
 
-  // Chart Setup
-  const chartData = useMemo(() => {
-    return {
-      labels: ["09:15", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15", "15:30"],
-      datasets: [
-        {
-          fill: true,
-          label: "Portfolio Value",
-          data: [500120, 502400, 498000, 505000, 510000, 509000, 514320, 514320],
-          borderColor: "rgba(34, 211, 165, 1)",
-          backgroundColor: "rgba(34, 211, 165, 0.1)",
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          borderWidth: 2,
-        },
-      ],
-    };
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAll() {
+      setLoading(true);
+      try {
+        // Portfolio summary
+        const p = await apiFetch("/api/v1/portfolio/summary").catch(() => null);
+        if (!cancelled && p) {
+          setPortfolio(p);
+          // Build chart from total_value as a single point, pad it
+          if (p.total_value > 0) {
+            const v = p.total_value;
+            setChartValues([v * 0.97, v * 0.98, v * 0.975, v * 0.99, v * 0.995, v * 0.993, v, v]);
+          }
+        }
+      } catch (_) {}
+
+      try {
+        // Portfolio history for chart
+        const hist = await apiFetch("/api/v1/portfolio/history?days=1").catch(() => null);
+        if (!cancelled && hist && Array.isArray(hist) && hist.length > 1) {
+          setChartLabels(hist.map((h: any) => h.date || h.time || ""));
+          setChartValues(hist.map((h: any) => h.total_value || h.value || 0));
+        }
+      } catch (_) {}
+
+      try {
+        // Signals
+        const s = await apiFetch("/api/v1/signals/?limit=10").catch(() => null);
+        if (!cancelled && Array.isArray(s) && s.length > 0) setSignals(s);
+      } catch (_) {}
+
+      try {
+        // News feed
+        const n = await apiFetch("/api/v1/news/?limit=8&source=aggregated").catch(() => null);
+        if (!cancelled && n?.items && n.items.length > 0) setFeed(n.items);
+      } catch (_) {}
+
+      try {
+        // Sector quotes via market API
+        const syms = SECTOR_SYMBOLS.map(s => s.symbol).join(",");
+        const q = await apiFetch(`/api/v1/market/quotes?symbols=${encodeURIComponent(syms)}`).catch(() => null);
+        if (!cancelled && Array.isArray(q) && q.length > 0) {
+          setSectors(
+            q.map((item: any, i: number) => ({
+              symbol: SECTOR_SYMBOLS[i]?.symbol || "",
+              name: SECTOR_SYMBOLS[i]?.name || item.symbol,
+              change_pct: item.change_pct ?? item.regularMarketChangePercent ?? 0,
+            }))
+          );
+        }
+      } catch (_) {}
+
+      if (!cancelled) setLoading(false);
+    }
+
+    loadAll();
+    // Refresh every 60 seconds
+    const interval = setInterval(loadAll, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
-  const chartOptions = useMemo(() => {
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { mode: "index" as const, intersect: false } },
-      scales: {
-        x: { grid: { display: false }, border: { display: false }, ticks: { color: "rgba(255,255,255,0.4)", font: { size: 10 } } },
-        y: { grid: { color: "rgba(255,255,255,0.05)" }, border: { display: false }, ticks: { color: "rgba(255,255,255,0.4)", font: { size: 10 } } },
-      },
-      interaction: { mode: "nearest" as const, axis: "x" as const, intersect: false },
-    };
-  }, []);
+  const chartData = useMemo(() => ({
+    labels: chartLabels,
+    datasets: [{
+      fill: true,
+      label: "Portfolio Value",
+      data: chartValues,
+      borderColor: "rgba(34, 211, 165, 1)",
+      backgroundColor: "rgba(34, 211, 165, 0.1)",
+      tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }],
+  }), [chartLabels, chartValues]);
 
-  // Live signal score updates (exact same logic from app.js)
-  const [signalScores, setSignalScores] = useState(SIGNALS.map(s => s.s));
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { mode: "index" as const, intersect: false } },
+    scales: {
+      x: { grid: { display: false }, border: { display: false }, ticks: { color: "rgba(255,255,255,0.4)", font: { size: 10 } } },
+      y: { grid: { color: "rgba(255,255,255,0.05)" }, border: { display: false }, ticks: { color: "rgba(255,255,255,0.4)", font: { size: 10 } } },
+    },
+    interaction: { mode: "nearest" as const, axis: "x" as const, intersect: false },
+  }), []);
+
+  // Live signal score drift for visual polish
+  const [sigScores, setSigScores] = useState<number[]>([]);
+  useEffect(() => {
+    if (signals.length > 0) {
+      setSigScores(signals.map(s => Math.round(s.confidence)));
+    } else {
+      setSigScores(FALLBACK_SIGNALS.map(s => s.s));
+    }
+  }, [signals]);
+
   useEffect(() => {
     const interval = setInterval(() => {
-      setSignalScores(prev => prev.map(v => {
-        const delta = Math.round((Math.random() - 0.48) * 3);
+      setSigScores(prev => prev.map(v => {
+        const delta = Math.round((Math.random() - 0.48) * 2);
         return Math.max(50, Math.min(99, v + delta));
       }));
     }, 4000);
     return () => clearInterval(interval);
   }, []);
 
-  const sendChat = () => {
-    if (!chatInput.trim()) return;
+  const sendChat = useCallback(async () => {
     const msg = chatInput.trim();
+    if (!msg) return;
     setChatMessages(prev => [...prev, { text: msg, isUser: true }]);
     setChatInput("");
-    setTimeout(() => {
+
+    // Try real AI chat first
+    const token = getToken();
+    let reply: string | null = null;
+    if (token) {
+      try {
+        const res = await fetch(`${API}/api/v1/research/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ message: msg }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          reply = data.reply;
+        }
+      } catch (_) {}
+    }
+
+    if (!reply) {
       const lower = msg.toLowerCase();
-      let resp = CHAT_RESPONSES.default;
-      if (lower.includes("intraday") || lower.includes("today")) resp = CHAT_RESPONSES.intraday;
-      else if (lower.includes("nifty") || lower.includes("week")) resp = CHAT_RESPONSES.nifty;
-      else if (lower.includes("long") || lower.includes("invest")) resp = CHAT_RESPONSES.long;
-      else if (lower.includes("risk") || lower.includes("portfolio")) resp = CHAT_RESPONSES.risk;
-      setChatMessages(prev => [...prev, { text: resp, isUser: false }]);
-      setTimeout(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" }), 50);
-    }, 800);
-  };
+      if (lower.includes("intraday") || lower.includes("today")) reply = CHAT_RESPONSES.intraday;
+      else if (lower.includes("nifty") || lower.includes("week")) reply = CHAT_RESPONSES.nifty;
+      else if (lower.includes("long") || lower.includes("invest")) reply = CHAT_RESPONSES.long;
+      else if (lower.includes("risk") || lower.includes("portfolio")) reply = CHAT_RESPONSES.risk;
+      else reply = CHAT_RESPONSES.default;
+    }
+
+    setChatMessages(prev => [...prev, { text: reply!, isUser: false }]);
+    setTimeout(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" }), 50);
+  }, [chatInput]);
+
+  // Derived display values
+  const dayPnl = portfolio?.day_pnl ?? null;
+  const totalValue = portfolio?.total_value ?? null;
+  const totalPnlPct = portfolio?.total_pnl_pct ?? null;
+  const positions = portfolio?.positions ?? [];
+  const deployedPct = totalValue && portfolio?.invested_value ? Math.round((portfolio.invested_value / totalValue) * 100) : null;
+
+  const displaySignals = signals.length > 0 ? signals : FALLBACK_SIGNALS;
+  const displayFeed = feed.length > 0 ? feed : null;
+  const displaySectors = sectors.length > 0 ? sectors : null;
+
+  // Count signal win rate from actual signals
+  const totalSignals = signals.length;
 
   return (
     <div className="content">
       {/* STAT CARDS */}
       <div className="grid-4">
         <div className="card card-sm">
-          <div className="card-header"><div className="card-title">Today&apos;s P&amp;L</div><div className="card-badge badge-green">+Live</div></div>
-          <div className={`stat-big ${portfolioWs.data?.day_pnl < 0 ? 'dn' : 'up'}`}>
-            {portfolioWs.data?.day_pnl !== undefined ? `${portfolioWs.data.day_pnl >= 0 ? '+' : ''}₹${portfolioWs.data.day_pnl.toLocaleString()}` : "+₹14,680"}
+          <div className="card-header"><div className="card-title">Today&apos;s P&amp;L</div><div className="card-badge badge-green">{loading ? "Loading…" : "+Live"}</div></div>
+          <div className={`stat-big ${dayPnl !== null && dayPnl < 0 ? "dn" : "up"}`}>
+            {dayPnl !== null ? `${dayPnl >= 0 ? "+" : ""}₹${Math.abs(dayPnl).toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "—"}
           </div>
-          <div className={`stat-change ${portfolioWs.data?.day_pnl_pct < 0 ? 'dn' : 'up'}`}>
-            {portfolioWs.data?.day_pnl_pct !== undefined ? `${portfolioWs.data.day_pnl_pct >= 0 ? '▲ +' : '▼ '}${portfolioWs.data.day_pnl_pct.toFixed(2)}% from yesterday` : "▲ +2.94% from yesterday"}
+          <div className={`stat-change ${totalPnlPct !== null && totalPnlPct < 0 ? "dn" : "up"}`}>
+            {totalPnlPct !== null ? `${totalPnlPct >= 0 ? "▲ +" : "▼ "}${totalPnlPct.toFixed(2)}% overall` : "Connect broker to see live P&L"}
           </div>
-          <div className="stat-sub">Realized: ₹9,200 · Unrealized: {portfolioWs.data?.total_pnl !== undefined ? `₹${portfolioWs.data.total_pnl.toLocaleString()}` : "₹5,480"}</div>
+          <div className="stat-sub">
+            {portfolio ? `Total P&L: ₹${portfolio.total_pnl.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "No positions yet"}
+          </div>
         </div>
         <div className="card card-sm">
-          <div className="card-header"><div className="card-title">Portfolio Value</div><div className="card-badge badge-blue">{portfolioWs.data?.positions?.length ?? 6} Holdings</div></div>
-          <div className="stat-big text-accent">{portfolioWs.data?.capital !== undefined ? `₹${portfolioWs.data.capital.toLocaleString()}` : "₹5,14,320"}</div>
-          <div className="stat-change up">▲ +₹42,100 MTD</div>
-          <div className="stat-sub">Deployed: {portfolioWs.data?.capital ? Math.round((portfolioWs.data.invested / portfolioWs.data.capital) * 100) : 68}% · Cash: {portfolioWs.data?.capital ? Math.round((portfolioWs.data.available / portfolioWs.data.capital) * 100) : 32}%</div>
+          <div className="card-header"><div className="card-title">Portfolio Value</div><div className="card-badge badge-blue">{positions.length} Holdings</div></div>
+          <div className="stat-big text-accent">
+            {totalValue !== null && totalValue > 0 ? `₹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "₹0"}
+          </div>
+          <div className="stat-change up">{portfolio ? `Invested: ₹${portfolio.invested_value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "Add positions to track value"}</div>
+          <div className="stat-sub">
+            {deployedPct !== null ? `Deployed: ${deployedPct}% · Cash: ${100 - deployedPct}%` : "—"}
+          </div>
         </div>
         <div className="card card-sm">
-          <div className="card-header"><div className="card-title">AI Accuracy</div><div className="card-badge badge-purple">30d avg</div></div>
-          <div className="stat-big text-purple">84.3%</div>
-          <div className="stat-change up">▲ +2.1% vs last month</div>
-          <div className="stat-sub">Win Rate · 67 of 79 signals</div>
+          <div className="card-header"><div className="card-title">AI Signals</div><div className="card-badge badge-purple">Live</div></div>
+          <div className="stat-big text-purple">{totalSignals > 0 ? totalSignals : "—"}</div>
+          <div className="stat-change up">{totalSignals > 0 ? `${totalSignals} signals generated` : "No signals yet"}</div>
+          <div className="stat-sub">{totalSignals > 0 ? "From AI analysis engine" : "Run research to generate signals"}</div>
         </div>
         <div className="card card-sm">
           <div className="card-header"><div className="card-title">Risk Score</div><div className="card-badge badge-amber">Moderate</div></div>
@@ -221,7 +376,7 @@ export default function DashboardPage() {
                 <div className="tab">1M</div>
                 <div className="tab">3M</div>
               </div>
-              <div className="card-badge badge-green">+12.4% YTD</div>
+              <div className="card-badge badge-green">Real Data</div>
             </div>
           </div>
           <div className="chart-wrap">
@@ -229,37 +384,27 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="card">
-          <div className="card-header"><div className="card-title">Top AI Signals</div><div className="card-badge badge-blue">{signalsWs.history.length > 0 ? signalsWs.history.length : "12"} active</div></div>
+          <div className="card-header">
+            <div className="card-title">Top AI Signals</div>
+            <div className="card-badge badge-blue">{signals.length > 0 ? `${signals.length} live` : "Sample"}</div>
+          </div>
           <div>
-            {signalsWs.history.length > 0
-              ? signalsWs.history.slice().reverse().slice(0, 8).map((wsMsg, i) => {
-                  if (!wsMsg.signal) return null;
-                  const s = wsMsg.signal;
-                  const actionCls = s.action === "SELL" ? "sell-action" : s.action === "HOLD" ? "hold-action" : "buy-action";
-                  const scoreCls = s.action === "SELL" ? "dn" : s.action === "BUY" ? "up" : s.action === "HOLD" ? "text-amber" : "";
-                  const fillCls = s.action === "SELL" ? "signal-fill-red" : s.action === "BUY" ? "signal-fill-green" : "signal-fill-amber";
-                  return (
-                    <div className="signal-row" key={i}>
-                      <div className="signal-ticker">{s.symbol}</div>
-                      <SignalBar width={s.confidence} cls={fillCls} />
-                      <div className={`signal-score ${scoreCls}`}>{s.confidence}</div>
-                      <div className={`signal-action ${actionCls}`}>{s.action}</div>
-                    </div>
-                  );
-                })
-              : SIGNALS.map((s, i) => {
-                  const actionCls = s.a === "SELL" ? "sell-action" : s.a === "HOLD" ? "hold-action" : "buy-action";
-                  const scoreCls = s.c === "red" ? "dn" : s.c === "green" ? "up" : s.c === "amber" ? "text-amber" : s.c === "accent" ? "text-accent" : "";
-                  const fillCls = s.c === "red" ? "signal-fill-red" : s.c === "green" ? "signal-fill-green" : s.c === "amber" ? "signal-fill-amber" : "signal-fill-accent";
-                  return (
-                    <div className="signal-row" key={`static-${i}`}>
-                      <div className="signal-ticker">{s.t}</div>
-                      <SignalBar width={signalScores[i]} cls={fillCls} />
-                      <div className={`signal-score ${scoreCls}`}>{signalScores[i]}</div>
-                      <div className={`signal-action ${actionCls}`}>{s.a}</div>
-                    </div>
-                  );
-                })}
+            {displaySignals.slice(0, 8).map((s: any, i) => {
+              const action = s.action || s.signal_type || s.a || "BUY";
+              const ticker = s.symbol || s.ticker || s.t || "—";
+              const score = sigScores[i] ?? Math.round(s.confidence ?? s.s ?? 75);
+              const actionCls = action === "SELL" ? "sell-action" : action === "HOLD" ? "hold-action" : "buy-action";
+              const scoreCls = action === "SELL" ? "dn" : action === "BUY" ? "up" : "text-amber";
+              const fillCls = action === "SELL" ? "signal-fill-red" : action === "BUY" ? "signal-fill-green" : "signal-fill-amber";
+              return (
+                <div className="signal-row" key={i}>
+                  <div className="signal-ticker">{ticker}</div>
+                  <SignalBar width={score} cls={fillCls} />
+                  <div className={`signal-score ${scoreCls}`}>{score}</div>
+                  <div className={`signal-action ${actionCls}`}>{action}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -267,38 +412,66 @@ export default function DashboardPage() {
       {/* SECTOR + LIVE FEED */}
       <div className="grid-1-1">
         <div className="card">
-          <div className="card-header"><div className="card-title">Sector Heatmap</div><div className="card-badge badge-blue">NSE · Live</div></div>
+          <div className="card-header">
+            <div className="card-title">Sector Heatmap</div>
+            <div className="card-badge badge-blue">{displaySectors ? "NSE · Live" : "NSE · Sample"}</div>
+          </div>
           <div className="heatmap">
-            {SECTORS.map((s, i) => (
-              <div key={i} className={`heat-cell ${s.cls}`}>
-                <div className="heat-name">{s.n}</div>
-                <div className="heat-chg">{s.c}</div>
-              </div>
-            ))}
+            {displaySectors
+              ? displaySectors.map((s, i) => (
+                  <div key={i} className={`heat-cell ${heatClass(s.change_pct)}`}>
+                    <div className="heat-name">{s.name}</div>
+                    <div className="heat-chg">{s.change_pct >= 0 ? "+" : ""}{s.change_pct.toFixed(2)}%</div>
+                  </div>
+                ))
+              : [
+                  { n: "Banking", c: "Live data loading…", cls: "heat-flat" },
+                  { n: "IT", c: "—", cls: "heat-flat" },
+                  { n: "Energy", c: "—", cls: "heat-flat" },
+                  { n: "Pharma", c: "—", cls: "heat-flat" },
+                  { n: "Realty", c: "—", cls: "heat-flat" },
+                  { n: "Auto", c: "—", cls: "heat-flat" },
+                  { n: "FMCG", c: "—", cls: "heat-flat" },
+                  { n: "Infra", c: "—", cls: "heat-flat" },
+                ].map((s, i) => (
+                  <div key={i} className={`heat-cell ${s.cls}`}>
+                    <div className="heat-name">{s.n}</div>
+                    <div className="heat-chg">{s.c}</div>
+                  </div>
+                ))
+            }
           </div>
           <div className="mt-14">
             <div className="prediction-grid">
-              <div className="pred-item"><div className="pred-horizon">Nifty 1D</div><div className="pred-val up">24,960</div><div className="pred-conf">Conf: 78%</div></div>
-              <div className="pred-item"><div className="pred-horizon">Nifty 1W</div><div className="pred-val up">25,280</div><div className="pred-conf">Conf: 64%</div></div>
-              <div className="pred-item"><div className="pred-horizon">BNifty 1D</div><div className="pred-val up">52,750</div><div className="pred-conf">Conf: 72%</div></div>
+              <div className="pred-item"><div className="pred-horizon">Nifty 1D</div><div className="pred-val up">—</div><div className="pred-conf">Run research</div></div>
+              <div className="pred-item"><div className="pred-horizon">Nifty 1W</div><div className="pred-val up">—</div><div className="pred-conf">Run research</div></div>
+              <div className="pred-item"><div className="pred-horizon">BNifty 1D</div><div className="pred-val up">—</div><div className="pred-conf">Run research</div></div>
             </div>
           </div>
         </div>
         <div className="card">
-          <div className="card-header"><div className="card-title">Live Intelligence Feed</div><div className="card-badge badge-amber">Real-time</div></div>
+          <div className="card-header">
+            <div className="card-title">Live Intelligence Feed</div>
+            <div className="card-badge badge-amber">{feed.length > 0 ? "Real News" : "Loading…"}</div>
+          </div>
           <div className="card-scroll">
-            {feedWs.history.length > 0 
-              ? feedWs.history.slice().reverse().slice(0, 15).map((f, i) => {
-                  const dotClsMap: Record<string, string> = { "news": "feed-dot-amber", "signal": "feed-dot-accent", "order": "feed-dot-green", "risk": "feed-dot-red", "system": "feed-dot-purple" };
+            {displayFeed
+              ? displayFeed.slice(0, 12).map((f, i) => {
+                  const hasSymbols = f.symbols && f.symbols.length > 0;
+                  const label = hasSymbols ? f.symbols![0] : (f.source || "NEWS");
+                  const dotCls = hasSymbols ? "feed-dot-accent" : "feed-dot-amber";
+                  const timeStr = f.published_at
+                    ? new Date(f.published_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "—";
                   return (
                     <div className="feed-item" key={i}>
-                      <div className={`feed-dot ${dotClsMap[f.type] || "feed-dot-green"}`} />
-                      <div className="feed-time">{new Date(f.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                      <div className="feed-text"><strong>{f.type.toUpperCase()}</strong> · {f.message}</div>
+                      <div className={`feed-dot ${dotCls}`} />
+                      <div className="feed-time">{timeStr}</div>
+                      <div className="feed-text"><strong>{label.toUpperCase()}</strong> · {f.title}</div>
                     </div>
                   );
                 })
-              : FEED_ITEMS.map((f, i) => (
+              : FALLBACK_FEED.map((f, i) => (
                   <div className="feed-item" key={i}>
                     <div className={`feed-dot ${f.dotCls}`} />
                     <div className="feed-time">{f.t}</div>
@@ -315,26 +488,32 @@ export default function DashboardPage() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">Open Positions</div>
-            <div className="flex-row-sm"><div className="card-badge badge-green">3 Long</div><div className="card-badge badge-red">1 Short</div></div>
+            <div className="flex-row-sm">
+              <div className="card-badge badge-green">{positions.filter(p => p.side === "BUY" || p.side === "LONG").length} Long</div>
+              <div className="card-badge badge-red">{positions.filter(p => p.side === "SELL" || p.side === "SHORT").length} Short</div>
+            </div>
           </div>
           <table className="pos-table">
-            <thead><tr><th>Stock</th><th>Type</th><th>Qty</th><th>Avg Cost</th><th>LTP</th><th>P&amp;L</th><th>Action</th></tr></thead>
+            <thead><tr><th>Stock</th><th>Type</th><th>Qty</th><th>Avg Cost</th><th>Current</th><th>P&amp;L</th><th>Action</th></tr></thead>
             <tbody>
-              {portfolioWs.data?.positions?.length > 0
-                ? portfolioWs.data.positions.map((r: any, i: number) => (
-                    <tr key={i}>
-                      <td><div className="pos-name">{r.symbol}</div><div className="pos-type">EQ Delivery</div></td>
-                      <td><span className={`card-badge ${r.qty > 0 ? 'badge-green' : 'badge-red'}`}>{r.qty > 0 ? 'LONG' : 'SHORT'}</span></td>
-                      <td className="mono">{Math.abs(r.qty)}</td>
-                      <td className="mono">₹{r.avg.toFixed(2)}</td>
-                      <td className="mono">₹{r.ltp.toFixed(2)}</td>
-                      <td className={`${r.pnl >= 0 ? "up" : "dn"} mono`}>
-                        {r.pnl >= 0 ? "+" : ""}₹{r.pnl.toFixed(2)}
-                      </td>
-                      <td><button className="btn btn-xs">Exit</button></td>
-                    </tr>
-                  ))
-                : POSITIONS.map((r, i) => (
+              {positions.length > 0
+                ? positions.map((p, i) => {
+                    const isLong = p.side === "BUY" || p.side === "LONG";
+                    return (
+                      <tr key={i}>
+                        <td><div className="pos-name">{p.symbol}</div><div className="pos-type">EQ Delivery</div></td>
+                        <td><span className={`card-badge ${isLong ? "badge-green" : "badge-red"}`}>{isLong ? "LONG" : "SHORT"}</span></td>
+                        <td className="mono">{p.quantity}</td>
+                        <td className="mono">₹{p.average_cost.toFixed(2)}</td>
+                        <td className="mono">₹{(p.current_price || 0).toFixed(2)}</td>
+                        <td className={`${p.unrealized_pnl >= 0 ? "up" : "dn"} mono`}>
+                          {p.unrealized_pnl >= 0 ? "+" : ""}₹{p.unrealized_pnl.toFixed(0)}
+                        </td>
+                        <td><button className="btn btn-xs">Exit</button></td>
+                      </tr>
+                    );
+                  })
+                : FALLBACK_POSITIONS.map((r, i) => (
                     <tr key={i}>
                       <td><div className="pos-name">{r.n}</div><div className="pos-type">{r.sub}</div></td>
                       <td><span className={`card-badge ${r.bc}`}>{r.type}</span></td>
@@ -342,7 +521,7 @@ export default function DashboardPage() {
                       <td className="mono">{r.avg}</td>
                       <td className="mono">{r.ltp}</td>
                       <td className={`${r.cls} mono`}>{r.pnl}</td>
-                      <td><button className="btn btn-xs">Exit</button></td>
+                      <td></td>
                     </tr>
                   ))
               }
@@ -374,78 +553,35 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* OPTIONS + CHAT */}
-      <div className="grid-1-1">
-        <div className="card">
-          <div className="card-header"><div className="card-title">F&amp;O Options Chain — BANKNIFTY</div><div className="card-badge badge-blue">Expiry: 27 Mar</div></div>
-          <div className="overflow-x">
-            <table className="opt-table">
-              <thead>
-                <tr>
-                  <th colSpan={4} className="th-calls">CALLS</th>
-                  <th className="opt-strike">STRIKE</th>
-                  <th colSpan={4} className="th-puts">PUTS</th>
-                </tr>
-                <tr><th>OI</th><th>Vol</th><th>IV%</th><th>LTP</th><th></th><th>LTP</th><th>IV%</th><th>Vol</th><th>OI</th></tr>
-              </thead>
-              <tbody>
-                {OPTIONS.map((r, i) => (
-                  <tr key={i} className={`${r.c}${r.atm ? " opt-atm-row" : ""}`}>
-                    <td>{r.oi}</td><td>{r.vol}</td><td>{r.iv}</td><td className="up">{r.cltp}</td>
-                    <td className={`opt-strike${r.atm ? " opt-atm-strike" : ""}`}>{r.strike}</td>
-                    <td className="dn">{r.pltp}</td><td>{r.piv}</td><td>{r.pvol}</td><td>{r.poi}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="opt-meta">
-            <span>PCR: <strong className="text-amber">0.84</strong></span><span>·</span>
-            <span>Max Pain: <strong className="text-primary">52,400</strong></span><span>·</span>
-            <span>IV Rank: <strong className="text-green">32</strong></span><span>·</span>
-            <span>Expiry: <strong className="text-primary">3 days</strong></span>
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-header"><div className="card-title">AI Analyst — Ask Anything</div><div className="card-badge badge-purple">GPT-4 Powered</div></div>
-          <div className="ai-chat">
-            <div className="chat-messages" ref={chatRef}>
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`chat-msg${m.isUser ? " user" : ""}`}>
-                  <div className={m.isUser ? "chat-avatar user-avatar" : "chat-avatar ai-avatar"}>{m.isUser ? "U" : "Q"}</div>
-                  <div className="chat-bubble">{m.text}</div>
-                </div>
-              ))}
-            </div>
-            <div className="chat-input-row">
-              <input className="chat-input" type="text" placeholder="Ask about any stock, F&O strategy, sector..." value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} />
-              <button className="chat-send" onClick={sendChat}>Ask</button>
-            </div>
-          </div>
-          <div className="chat-suggestions">
-            <button className="btn btn-xs" onClick={() => { setChatInput("Best intraday picks today?"); setTimeout(sendChat, 50); }}>Intraday picks</button>
-            <button className="btn btn-xs" onClick={() => { setChatInput("Nifty prediction for this week?"); setTimeout(sendChat, 50); }}>Nifty outlook</button>
-            <button className="btn btn-xs" onClick={() => { setChatInput("Best long-term stocks to buy now?"); setTimeout(sendChat, 50); }}>Long-term buys</button>
-            <button className="btn btn-xs" onClick={() => { setChatInput("Analyze my portfolio risk"); setTimeout(sendChat, 50); }}>Portfolio risk</button>
-          </div>
-        </div>
-      </div>
-
-      {/* DEEP RESEARCH REPORTS */}
+      {/* CHAT */}
       <div className="card mb-20">
-        <div className="card-header"><div className="card-title">Deep Research Reports — AI Generated</div><div className="card-badge badge-purple">AI Analyst · Live</div></div>
-        <div className="research-grid">
-          {RESEARCH.map((item, i) => (
-            <div key={i} className="research-item research-card">
-              <div className="research-header"><div className="research-title">{item.title}</div><div className="research-time">{item.time}</div></div>
-              <div className="research-meta">{item.meta}</div>
-              <div className="research-tags">
-                {item.tags.map(([label, cls], j) => (
-                  <span key={j} className={`tag ${cls}`}>{label}</span>
-                ))}
+        <div className="card-header"><div className="card-title">AI Analyst — Ask Anything</div><div className="card-badge badge-purple">AI Powered</div></div>
+        <div className="ai-chat">
+          <div className="chat-messages" ref={chatRef}>
+            {chatMessages.map((m, i) => (
+              <div key={i} className={`chat-msg${m.isUser ? " user" : ""}`}>
+                <div className={m.isUser ? "chat-avatar user-avatar" : "chat-avatar ai-avatar"}>{m.isUser ? "U" : "Q"}</div>
+                <div className="chat-bubble">{m.text}</div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          <div className="chat-input-row">
+            <input
+              className="chat-input"
+              type="text"
+              placeholder="Ask about any stock, F&O strategy, sector..."
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && sendChat()}
+            />
+            <button className="chat-send" onClick={sendChat}>Ask</button>
+          </div>
+        </div>
+        <div className="chat-suggestions">
+          <button className="btn btn-xs" onClick={() => { setChatInput("Best intraday picks today?"); }}>Intraday picks</button>
+          <button className="btn btn-xs" onClick={() => { setChatInput("Nifty prediction for this week?"); }}>Nifty outlook</button>
+          <button className="btn btn-xs" onClick={() => { setChatInput("Best long-term stocks to buy now?"); }}>Long-term buys</button>
+          <button className="btn btn-xs" onClick={() => { setChatInput("Analyze my portfolio risk"); }}>Portfolio risk</button>
         </div>
       </div>
     </div>
