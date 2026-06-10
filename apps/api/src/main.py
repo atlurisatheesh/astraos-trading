@@ -25,21 +25,15 @@ async def lifespan(app: FastAPI):
     )
 
 
-    # Run database migrations on startup (production)
-    if settings.app_env == "production":
-        try:
-            import subprocess, sys, os
-            result = subprocess.run(
-                [sys.executable, "-m", "alembic", "upgrade", "head"],
-                capture_output=True, text=True,
-                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            )
-            if result.returncode == 0:
-                logger.info("Database migrations applied successfully")
-            else:
-                logger.warning("Migration note", stdout=result.stdout[-200:], stderr=result.stderr[-200:])
-        except Exception as e:
-            logger.warning("Migration skipped", error=str(e))
+    # Ensure all tables exist on startup (works for both SQLite and PostgreSQL)
+    try:
+        from .core.database import engine, Base
+        from . import models  # noqa: F401 — import all models so metadata is populated
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables ensured")
+    except Exception as e:
+        logger.warning("DB create_all failed", error=str(e))
 
     # Start the continuous monitoring scheduler
     try:
