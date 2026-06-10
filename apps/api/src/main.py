@@ -151,6 +151,23 @@ def create_app() -> FastAPI:
     app.include_router(advanced_router.router)
     app.include_router(pro_router.router)
 
+    @app.get("/debug/db", tags=["Debug"])
+    async def debug_db():
+        from .core.database import engine, Base
+        from sqlalchemy import inspect, text
+        tables_in_metadata = sorted(Base.metadata.tables.keys())
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+                tables_in_db = [row[0] for row in result]
+        except Exception as e:
+            tables_in_db = [f"ERROR: {e}"]
+        return {
+            "db_url": str(engine.url),
+            "metadata_tables": tables_in_metadata,
+            "db_tables": tables_in_db,
+        }
+
     @app.get("/health", tags=["Health"])
     async def health_check():
         # Include scheduler status in health check
