@@ -60,14 +60,14 @@ class YFinanceProvider(MarketDataProvider):
             return f"{symbol}.NS"
         return symbol
 
-    async def get_quote(self, symbol: str) -> Quote:
-        """Get a delayed quote for a single stock."""
+    def _quote_sync(self, symbol: str) -> Quote:
+        """Fetch a quote via fast_info (reliable on cloud hosts, unlike .info)."""
         yf_symbol = self._to_nse_symbol(symbol)
         ticker = yf.Ticker(yf_symbol)
-        info = ticker.info
+        fi = ticker.fast_info
 
-        price = Decimal(str(info.get("currentPrice", info.get("regularMarketPrice", 0))))
-        prev_close = Decimal(str(info.get("previousClose", info.get("regularMarketPreviousClose", 0))))
+        price = Decimal(str(fi.last_price or 0))
+        prev_close = Decimal(str(fi.previous_close or 0))
         change = price - prev_close if prev_close else Decimal("0")
         change_pct = float(change / prev_close * 100) if prev_close else 0.0
 
@@ -76,13 +76,19 @@ class YFinanceProvider(MarketDataProvider):
             price=price,
             change=change,
             change_pct=round(change_pct, 2),
-            volume=info.get("volume", info.get("regularMarketVolume", 0)),
-            high=Decimal(str(info.get("dayHigh", info.get("regularMarketDayHigh", 0)))),
-            low=Decimal(str(info.get("dayLow", info.get("regularMarketDayLow", 0)))),
-            open_price=Decimal(str(info.get("open", info.get("regularMarketOpen", 0)))),
+            volume=int(fi.last_volume or 0),
+            high=Decimal(str(fi.day_high or 0)),
+            low=Decimal(str(fi.day_low or 0)),
+            open_price=Decimal(str(fi.open or 0)),
             prev_close=prev_close,
             timestamp=datetime.now(timezone.utc),
         )
+
+    async def get_quote(self, symbol: str) -> Quote:
+        """Get a delayed quote for a single stock."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._quote_sync, symbol)
 
     async def get_ohlcv(self, symbol: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame:
         """Get historical OHLCV data.
@@ -119,15 +125,18 @@ class YFinanceProvider(MarketDataProvider):
         return await self.get_ohlcv(symbol, interval=interval, period=period)
 
     async def get_multiple_quotes(self, symbols: list[str]) -> list[Quote]:
-        """Get quotes for multiple symbols."""
-        quotes = []
-        for symbol in symbols:
+        """Get quotes for multiple symbols in parallel."""
+        import asyncio
+
+        async def safe(symbol: str) -> Quote | None:
             try:
-                q = await self.get_quote(symbol)
-                quotes.append(q)
+                return await self.get_quote(symbol)
             except Exception as e:
                 logger.error("Failed to get quote", symbol=symbol, error=str(e))
-        return quotes
+                return None
+
+        results = await asyncio.gather(*[safe(s) for s in symbols])
+        return [q for q in results if q is not None]
 
     async def get_options_chain(self, symbol: str) -> dict:
         """Get options chain data for F&O."""
