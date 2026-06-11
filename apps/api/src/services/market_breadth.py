@@ -105,21 +105,46 @@ class MarketBreadth:
 class MarketBreadthService:
     """Compute market breadth and heatmap data."""
 
+    def _fetch_one(self, symbol: str) -> Optional[dict]:
+        """Fetch one stock via fast_info (lighter and more reliable than .info)."""
+        try:
+            t = yf.Ticker(f"{symbol}.NS")
+            fi = t.fast_info
+            price = float(fi.last_price or 0)
+            prev = float(fi.previous_close or price)
+            return {
+                "price": price,
+                "prev": prev,
+                "mcap": float(fi.market_cap or 0),
+                "high52": float(fi.year_high or 0),
+                "low52": float(fi.year_low or 0),
+            }
+        except Exception as e:
+            logger.debug("Breadth stock failed", symbol=symbol, error=str(e))
+            return None
+
     async def get_breadth(self) -> MarketBreadth:
-        """Get full market breadth analysis."""
+        """Get full market breadth analysis (parallel fast_info fetches)."""
+        import asyncio
+
         result = MarketBreadth()
         sector_changes: dict[str, list[float]] = {}
 
-        for symbol, sector in list(NIFTY_50_MAP.items())[:40]:
+        symbols = list(NIFTY_50_MAP.items())[:40]
+        loop = asyncio.get_event_loop()
+        fetched = await asyncio.gather(
+            *[loop.run_in_executor(None, self._fetch_one, sym) for sym, _ in symbols]
+        )
+
+        for (symbol, sector), data in zip(symbols, fetched):
+            if not data or data["price"] <= 0:
+                continue
             try:
-                yf_sym = f"{symbol}.NS"
-                t = yf.Ticker(yf_sym)
-                info = t.info
-                price = float(info.get("currentPrice", info.get("regularMarketPrice", 0)))
-                prev = float(info.get("previousClose", price))
-                mcap = float(info.get("marketCap", 0))
-                high52 = float(info.get("fiftyTwoWeekHigh", 0))
-                low52 = float(info.get("fiftyTwoWeekLow", 0))
+                price = data["price"]
+                prev = data["prev"]
+                mcap = data["mcap"]
+                high52 = data["high52"]
+                low52 = data["low52"]
 
                 change = ((price - prev) / prev * 100) if prev > 0 else 0
                 if change > 0.05:

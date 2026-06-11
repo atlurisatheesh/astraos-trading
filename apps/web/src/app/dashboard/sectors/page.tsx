@@ -240,21 +240,29 @@ export default function SectorHeatmapPage() {
   const [loading, setLoading] = useState(true);
   const [hoveredStock, setHoveredStock] = useState<HeatStock | null>(null);
   const [sortBy, setSortBy] = useState<"mcap" | "change">("mcap");
+  const [isLive, setIsLive] = useState(false);
   const [sectorFilter, setSectorFilter] = useState<string>("all");
 
   useEffect(() => {
     async function load() {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch("/api/v1/pro/breadth", {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://astraos-backend.onrender.com";
+        const res = await fetch(`${API_BASE}/api/v1/pro/breadth`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
-          setData(await res.json());
+          const json = await res.json();
+          // Backend may return empty heatmap if data source fails — fall back
+          const live = !!json?.heatmap?.length;
+          setIsLive(live);
+          setData(live ? json : MOCK_DATA);
         } else {
+          setIsLive(false);
           setData(MOCK_DATA);
         }
       } catch {
+        setIsLive(false);
         setData(MOCK_DATA);
       }
       setLoading(false);
@@ -325,8 +333,8 @@ export default function SectorHeatmapPage() {
           <h1 className="page-title page-title-live">
             🗺️ Market Heatmap
             <span className="live-pulse">
-              <span className="live-pulse-dot" />
-              Live
+              {isLive && <span className="live-pulse-dot" />}
+              {isLive ? "Live" : "Sample Data"}
             </span>
           </h1>
           <p className="page-subtitle">

@@ -35,27 +35,55 @@ export default function OptionsPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const maxPain = maxPainData as any;
 
-  const strikes: Strike[] = chain?.chain
-    ? chain.chain.map((c: Record<string, number>) => ({
-        strike: c.strike_price ?? c.strike ?? 0,
-        ceOI: c.ce_oi ?? 0, ceVol: c.ce_volume ?? 0, ceIV: c.ce_iv ?? 0, ceLTP: c.ce_ltp ?? 0,
-        peLTP: c.pe_ltp ?? 0, peIV: c.pe_iv ?? 0, peVol: c.pe_volume ?? 0, peOI: c.pe_oi ?? 0,
-      }))
-    : FALLBACK_STRIKES;
+  // Backend returns {calls:[], puts:[], analytics:{...}} — merge by strike
+  let liveStrikes: Strike[] = [];
+  if (chain?.calls?.length || chain?.puts?.length) {
+    const byStrike = new Map<number, Strike>();
+    for (const c of chain.calls ?? []) {
+      const k = c.strike_price ?? c.strike ?? 0;
+      byStrike.set(k, {
+        strike: k, ceOI: c.oi ?? c.open_interest ?? 0, ceVol: c.volume ?? 0,
+        ceIV: c.iv ?? c.implied_volatility ?? 0, ceLTP: c.ltp ?? c.last_price ?? 0,
+        peLTP: 0, peIV: 0, peVol: 0, peOI: 0,
+      });
+    }
+    for (const p of chain.puts ?? []) {
+      const k = p.strike_price ?? p.strike ?? 0;
+      const row = byStrike.get(k) ?? { strike: k, ceOI: 0, ceVol: 0, ceIV: 0, ceLTP: 0, peLTP: 0, peIV: 0, peVol: 0, peOI: 0 };
+      row.peOI = p.oi ?? p.open_interest ?? 0;
+      row.peVol = p.volume ?? 0;
+      row.peIV = p.iv ?? p.implied_volatility ?? 0;
+      row.peLTP = p.ltp ?? p.last_price ?? 0;
+      byStrike.set(k, row);
+    }
+    liveStrikes = [...byStrike.values()].sort((a, b) => a.strike - b.strike);
+  } else if (chain?.chain?.length) {
+    liveStrikes = chain.chain.map((c: Record<string, number>) => ({
+      strike: c.strike_price ?? c.strike ?? 0,
+      ceOI: c.ce_oi ?? 0, ceVol: c.ce_volume ?? 0, ceIV: c.ce_iv ?? 0, ceLTP: c.ce_ltp ?? 0,
+      peLTP: c.pe_ltp ?? 0, peIV: c.pe_iv ?? 0, peVol: c.pe_volume ?? 0, peOI: c.pe_oi ?? 0,
+    }));
+  }
+  const isLive = liveStrikes.length > 0;
+  const strikes: Strike[] = isLive ? liveStrikes : FALLBACK_STRIKES;
 
+  const analytics = chain?.analytics;
   const metrics = [
-    { label: "PCR (OI)", value: pcr?.pcr?.toFixed(2) ?? "1.28", color: "green" },
-    { label: "Max Pain", value: maxPain?.max_pain_strike ? maxPain.max_pain_strike.toLocaleString() : "24,500", color: "accent" },
+    { label: "PCR (OI)", value: (pcr?.pcr_oi ?? pcr?.pcr ?? analytics?.pcr_oi)?.toFixed?.(2) ?? "1.28", color: "green" },
+    { label: "Max Pain", value: (maxPain?.max_pain_strike ?? analytics?.max_pain) ? Number(maxPain?.max_pain_strike ?? analytics?.max_pain).toLocaleString() : "24,500", color: "accent" },
     { label: "IV (ATM)", value: chain?.atm_iv ? chain.atm_iv.toFixed(1) + "%" : "12.8%", color: "amber" },
-    { label: "Total CE OI", value: chain?.total_ce_oi ? (chain.total_ce_oi / 100000).toFixed(1) + "L" : "16.4L", color: "red" },
-    { label: "Total PE OI", value: chain?.total_pe_oi ? (chain.total_pe_oi / 100000).toFixed(1) + "L" : "14.5L", color: "green" },
+    { label: "Total CE OI", value: (chain?.total_ce_oi ?? analytics?.total_call_oi) ? (Number(chain?.total_ce_oi ?? analytics?.total_call_oi) / 100000).toFixed(1) + "L" : "16.4L", color: "red" },
+    { label: "Total PE OI", value: (chain?.total_pe_oi ?? analytics?.total_put_oi) ? (Number(chain?.total_pe_oi ?? analytics?.total_put_oi) / 100000).toFixed(1) + "L" : "14.5L", color: "green" },
   ];
 
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold font-[var(--font-heading)]">🔗 F&O Options Chain</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold font-[var(--font-heading)]">🔗 F&O Options Chain</h1>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isLive ? "signal-buy" : "signal-hold"}`}>{isLive ? "LIVE" : "SAMPLE DATA"}</span>
+          </div>
           <p className="text-sm text-[var(--text-secondary)]">{symbol} • {loading ? "Loading..." : `${strikes.length} strikes`}</p>
         </div>
         <select value={symbol} onChange={(e) => setSymbol(e.target.value)} title="Select instrument"

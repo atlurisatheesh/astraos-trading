@@ -115,8 +115,10 @@ export interface NewsItem {
   url: string;
   source: string;
   published: string;
-  symbols: string[];
-  sentiment?: { label: string; score: number };
+  summary?: string;
+  category?: string;
+  symbols?: string[];
+  sentiment?: number; // backend returns float score (-1..1)
 }
 
 export interface JournalEntry {
@@ -152,8 +154,18 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
         window.location.href = "/login";
       }
     }
-    throw new Error(`API Error: ${res.status} ${res.statusText}`);
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const errBody = await res.json();
+      if (errBody?.detail) {
+        detail = typeof errBody.detail === "string"
+          ? errBody.detail
+          : JSON.stringify(errBody.detail);
+      }
+    } catch {}
+    throw new Error(detail);
   }
+  if (res.status === 204) return null as T;
   return res.json();
 }
 
@@ -185,11 +197,11 @@ export const api = {
   batchAnalyze: (symbols: string[]) =>
     fetchApi(`/api/v1/research/batch?symbols=${symbols.join(",")}`),
 
-  // News
+  // News (backend wraps items: {count, source, items})
   getNews: (source = "aggregated") =>
-    fetchApi<NewsItem[]>(`/api/v1/news/?source=${source}`),
+    fetchApi<{ items: NewsItem[] }>(`/api/v1/news/?source=${source}`).then(r => r.items ?? []),
   getNewsBySymbol: (symbol: string) =>
-    fetchApi<NewsItem[]>(`/api/v1/news/symbol/${symbol}`),
+    fetchApi<{ items: NewsItem[] }>(`/api/v1/news/symbol/${symbol}`).then(r => r.items ?? []),
 
   // Backtest
   runBacktest: (symbol: string, strategy = "momentum") =>
@@ -251,8 +263,10 @@ export const api = {
 
   // CRUD
   getWatchlists: () => fetchApi("/api/v1/watchlists/"),
-  createWatchlist: (name: string, instrument_ids: number[] = []) =>
-    fetchApi("/api/v1/watchlists/", { method: "POST", body: JSON.stringify({ name, instrument_ids }) }),
+  createWatchlist: (name: string, symbols: string[] = []) =>
+    fetchApi("/api/v1/watchlists/", { method: "POST", body: JSON.stringify({ name, instrument_ids: symbols }) }),
+  deleteWatchlist: (id: number) =>
+    fetchApi(`/api/v1/watchlists/${id}`, { method: "DELETE" }),
   getSignals: () => fetchApi("/api/v1/signals/"),
   getOrders: () => fetchApi("/api/v1/orders/"),
   getPositions: () => fetchApi<PositionItem[]>("/api/v1/positions/"),
@@ -272,7 +286,7 @@ export const api = {
   getStrategies: () => fetchApi(`/api/v1/strategies/`),
 
   // Sectors
-  getSectors: () => fetchApi(`/api/v1/market/sectors`),
+  getSectors: () => fetchApi(`/api/v1/advanced/sector-rotation`),
 
   // Analyst chat
   chatWithAnalyst: (message: string) =>

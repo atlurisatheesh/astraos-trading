@@ -66,13 +66,14 @@ class InstrumentResponse(BaseModel):
 
 class WatchlistCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    instrument_ids: list[int] = []
+    # Stock symbols (e.g. ["RELIANCE", "TCS"]); field name kept for model compat
+    instrument_ids: list[str] = []
 
 
 class WatchlistResponse(BaseModel):
     id: int
     name: str
-    instrument_ids: list[int]
+    instrument_ids: list[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}

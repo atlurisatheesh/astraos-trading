@@ -22,17 +22,24 @@ const FALLBACK_REPORTS = [
 export default function ResearchPage() {
   const { data: news } = useApi(() => api.getNews(), [], { interval: 60000 });
 
-  const REPORTS = (news as NewsItem[])?.length
-    ? (news as NewsItem[]).map(n => ({
-        title: n.title,
-        date: new Date(n.published).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-        confidence: n.sentiment ? Math.round(Math.abs(n.sentiment.score) * 100) : 50,
-        verdict: n.sentiment?.label === "positive" ? "BULLISH" : n.sentiment?.label === "negative" ? "BEARISH" : "NEUTRAL",
-      }))
+  const isLive = !!(news as NewsItem[])?.length;
+  const REPORTS = isLive
+    ? (news as NewsItem[]).map(n => {
+        const score = typeof n.sentiment === "number" ? n.sentiment : 0;
+        return {
+          title: n.title,
+          date: new Date(n.published).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+          confidence: score !== 0 ? Math.round(Math.abs(score) * 100) : 50,
+          verdict: score > 0.05 ? "BULLISH" : score < -0.05 ? "BEARISH" : "NEUTRAL",
+        };
+      })
     : FALLBACK_REPORTS;
   return (
     <div className="space-y-5 animate-fade-in">
-      <h1 className="text-2xl font-bold font-[var(--font-heading)]">🔬 Research Reports</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold font-[var(--font-heading)]">🔬 Research Reports</h1>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isLive ? "signal-buy" : "signal-hold"}`}>{isLive ? "LIVE" : "SAMPLE DATA"}</span>
+      </div>
       <p className="text-sm text-[var(--text-secondary)]">AI-generated deep research • Multi-agent synthesis</p>
       <div className="space-y-3">
         {REPORTS.map((r, i) => (
@@ -43,7 +50,7 @@ export default function ResearchPage() {
                 <span className="text-[10px] text-[var(--text-tertiary)]">{r.date}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded ${r.verdict === 'BUY' || r.verdict === 'POSITIVE' || r.verdict === 'BULLISH' ? 'signal-buy' : 'signal-sell'}`}>{r.verdict}</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${r.verdict === 'BUY' || r.verdict === 'POSITIVE' || r.verdict === 'BULLISH' ? 'signal-buy' : r.verdict === 'NEUTRAL' ? 'signal-hold' : 'signal-sell'}`}>{r.verdict}</span>
                 <div className="flex items-center gap-1">
                   <div className="confidence-bar w-12"><DynFill pct={r.confidence} color={r.confidence > 80 ? 'var(--green)' : 'var(--amber)'} cls="confidence-fill" /></div>
                   <span className="text-[10px] font-[var(--font-mono)] text-[var(--text-secondary)]">{r.confidence}%</span>

@@ -53,19 +53,27 @@ const NAV_ITEMS: NavEntry[] = [
   { href: "/dashboard/settings", icon: "settings", label: "Settings" },
 ];
 
-const TICKER_ITEMS = [
-  { name: "NIFTY50", val: "24,842.65", chg: "+0.42%", up: true },
-  { name: "BANKNIFTY", val: "52,318.40", chg: "+0.68%", up: true },
-  { name: "SENSEX", val: "81,576.35", chg: "+0.51%", up: true },
-  { name: "RELIANCE", val: "2,892.75", chg: "-0.31%", up: false },
-  { name: "TCS", val: "4,126.00", chg: "+1.14%", up: true },
-  { name: "HDFC BANK", val: "1,887.50", chg: "+0.88%", up: true },
-  { name: "INFOSYS", val: "1,672.30", chg: "-0.22%", up: false },
-  { name: "ICICI BANK", val: "1,435.80", chg: "+1.22%", up: true },
-  { name: "WIPRO", val: "487.65", chg: "+0.43%", up: true },
-  { name: "BAJFINANCE", val: "6,782.00", chg: "-0.56%", up: false },
-  { name: "GOLD", val: "₹71,450", chg: "+0.34%", up: true },
-  { name: "USD/INR", val: "83.42", chg: "-0.08%", up: false },
+// Fallback shown until live quotes load
+const TICKER_FALLBACK = [
+  { name: "NIFTY50", val: "—", chg: "", up: true },
+  { name: "BANKNIFTY", val: "—", chg: "", up: true },
+  { name: "SENSEX", val: "—", chg: "", up: true },
+  { name: "RELIANCE", val: "—", chg: "", up: true },
+  { name: "TCS", val: "—", chg: "", up: true },
+];
+
+// symbol → display name (backend appends .NS for non-^ symbols)
+const TICKER_SYMBOLS: [string, string][] = [
+  ["^NSEI", "NIFTY50"],
+  ["^NSEBANK", "BANKNIFTY"],
+  ["^BSESN", "SENSEX"],
+  ["RELIANCE", "RELIANCE"],
+  ["TCS", "TCS"],
+  ["HDFCBANK", "HDFC BANK"],
+  ["INFY", "INFOSYS"],
+  ["ICICIBANK", "ICICI BANK"],
+  ["WIPRO", "WIPRO"],
+  ["BAJFINANCE", "BAJFINANCE"],
 ];
 
 const PAGE_TITLES: Record<string, string> = {
@@ -91,17 +99,48 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string>("");
+  const [ticker, setTicker] = useState(TICKER_FALLBACK);
 
   useEffect(() => {
     const email = localStorage.getItem("user_email") || sessionStorage.getItem("user_email") || "";
     setUserEmail(email);
   }, []);
 
+  useEffect(() => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://astraos-backend.onrender.com";
+    async function loadQuotes() {
+      try {
+        const token = localStorage.getItem("token");
+        const syms = TICKER_SYMBOLS.map(([s]) => s).join(",");
+        const res = await fetch(`${API_BASE}/api/v1/market/quotes?symbols=${encodeURIComponent(syms)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const quotes = await res.json();
+        if (!Array.isArray(quotes) || !quotes.length) return;
+        setTicker(
+          quotes.map((q: any, i: number) => {
+            const chg = q.change_pct ?? 0;
+            return {
+              name: TICKER_SYMBOLS[i]?.[1] || q.symbol,
+              val: Number(q.price ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2 }),
+              chg: `${chg >= 0 ? "+" : ""}${Number(chg).toFixed(2)}%`,
+              up: chg >= 0,
+            };
+          })
+        );
+      } catch { /* keep fallback */ }
+    }
+    loadQuotes();
+    const id = setInterval(loadQuotes, 60000);
+    return () => clearInterval(id);
+  }, []);
+
   const logout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("user_email");
-    sessionStorage.removeItem("access_token");
-    sessionStorage.removeItem("user_email");
+    ["token", "access_token", "user_email"].forEach(k => {
+      localStorage.removeItem(k);
+      sessionStorage.removeItem(k);
+    });
     router.push("/login");
   };
 
@@ -155,7 +194,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="sidebar-offset">
         <div className="ticker-tape">
           <span className="ticker-scroll">
-            {[...TICKER_ITEMS, ...TICKER_ITEMS].map((t, i) => (
+            {[...ticker, ...ticker].map((t, i) => (
               <span key={i} className="ticker-tape-item">
                 <span className="tt-name">{t.name}</span>
                 <span className={t.up ? "up" : "dn"}>{t.val}</span>
@@ -172,9 +211,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {pageTitle} <span>{dateStr}</span>
             </div>
             <div className="market-ticker">
-              <div className="ticker-item"><span className="ticker-name">N50</span><span className="ticker-val up">24,842</span><span className="ticker-chg up">+105</span></div>
-              <div className="ticker-item"><span className="ticker-name">BNK</span><span className="ticker-val up">52,318</span><span className="ticker-chg up">+353</span></div>
-              <div className="ticker-item"><span className="ticker-name">VIX</span><span className="ticker-val dn">14.32</span><span className="ticker-chg dn">-0.8</span></div>
+              {ticker.slice(0, 3).map((t, i) => (
+                <div className="ticker-item" key={i}>
+                  <span className="ticker-name">{["N50", "BNK", "SNX"][i] || t.name}</span>
+                  <span className={`ticker-val ${t.up ? "up" : "dn"}`}>{t.val}</span>
+                  <span className={`ticker-chg ${t.up ? "up" : "dn"}`}>{t.chg}</span>
+                </div>
+              ))}
             </div>
             <div className="topbar-actions">
               <button className="btn">⏸ Pause Bot</button>
