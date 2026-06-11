@@ -1,9 +1,46 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
 
-/* 
-  Minimal reset — all visual styling comes from quantus-theme.css (styles.css).
-  This file only loads fonts and provides animation utilities.
+/*
+  Tailwind v4 enabled (was installed but never imported — all utility
+  classes on inner pages rendered as raw HTML before this).
+  Visual theme tokens come from quantus-theme.css; aliases below map
+  the var names inner pages use onto the theme palette.
 */
+
+:root {
+  --bg-primary: var(--bg);
+  --bg-card: var(--card);
+  --bg-card-hover: var(--card2);
+  --text-primary: var(--text);
+  --text-secondary: var(--text2);
+  --text-tertiary: var(--text3);
+  --border-active: var(--border2);
+  --accent-glow: rgba(99, 140, 255, 0.25);
+  --amber-glow: rgba(245, 158, 11, 0.2);
+  --red-glow: rgba(255, 79, 109, 0.2);
+  --green-glow: rgba(34, 211, 165, 0.2);
+  --font-heading: var(--font);
+  /* --font-mono already defined as --mono in theme */
+  --font-mono: var(--mono);
+}
+
+/* Card primitive used across inner pages */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 18px 20px;
+}
+
+/* Signal badges */
+.signal-buy { background: rgba(34, 211, 165, 0.15); color: var(--green); }
+.signal-sell { background: rgba(255, 79, 109, 0.15); color: var(--red); }
+.signal-hold { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+
+/* Confidence bar */
+.confidence-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.confidence-fill { height: 100%; border-radius: 2px; }
 
 .animate-fade-in { animation: fade-in 0.4s ease-out; }
 
