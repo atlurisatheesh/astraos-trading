@@ -55,6 +55,10 @@ class RAGEngine:
 
     def load_and_index_books(self, force_rebuild: bool = False):
         """Parse PDFs, chunk, and create FAISS index."""
+        if Document is None or FAISS is None or self.embeddings is None:
+            logger.error("Cannot build RAG index: langchain dependencies are missing.")
+            return
+
         from langchain_text_splitters import RecursiveCharacterTextSplitter
         import fitz  # PyMuPDF
 

@@ -460,40 +460,93 @@ class MacroAgent(BaseAgent):
         except Exception:
             vix = 15.0
 
-        # VIX-based regime assessment
+        # VIX-based base assessment
         if vix > 25:
-            signal, confidence = "bearish", 75
-            reasoning = f"VIX at {vix:.1f} — high fear, risk-off environment"
+            vix_signal, vix_conf = "bearish", 75
+            reasoning = f"VIX at {vix:.1f} — high fear, risk-off"
         elif vix < 12:
-            signal, confidence = "bullish", 70
-            reasoning = f"VIX at {vix:.1f} — low fear, complacency (contrarian caution)"
+            vix_signal, vix_conf = "bullish", 70
+            reasoning = f"VIX at {vix:.1f} — low fear, complacency"
         else:
-            signal, confidence = "neutral", 55
-            reasoning = f"VIX at {vix:.1f} — moderate volatility, normal conditions"
+            vix_signal, vix_conf = "neutral", 55
+            reasoning = f"VIX at {vix:.1f} — normal conditions"
+
+        signal, confidence = vix_signal, vix_conf
+        fii_data = {}
+
+        # ── FII/DII Institutional Flow (most predictive macro signal) ──────
+        # Rules: FII+DII both buying 3+ days = strong bull
+        #        FII selling + DII buying = cautious
+        #        FII selling heavy = real bearish intent (DII can't hold alone)
+        try:
+            from ..services.fii_dii_service import fetch_fii_dii_today, fetch_fii_dii_history
+
+            today_flow = await fetch_fii_dii_today()
+            history = await fetch_fii_dii_history(days=3)
+
+            if today_flow:
+                fii_data = today_flow.to_dict()
+                flow_signal = today_flow.signal
+
+                # Combine VIX signal with FII/DII flow
+                if flow_signal == "strong_bullish" and vix_signal != "bearish":
+                    signal = "bullish"
+                    confidence = min(90, vix_conf + 15)
+                    reasoning += f" | FII+DII both buying (FII net: ₹{today_flow.fii_net:,.0f}Cr, DII: ₹{today_flow.dii_net:,.0f}Cr) — STRONG BULL"
+                elif flow_signal == "strong_bearish":
+                    signal = "bearish"
+                    confidence = min(90, vix_conf + 15)
+                    reasoning += f" | FII+DII both selling (FII: ₹{today_flow.fii_net:,.0f}Cr) — STRONG BEAR"
+                elif flow_signal == "bullish" and vix_signal in ("bullish", "neutral"):
+                    signal = "bullish"
+                    confidence = vix_conf + 8
+                    reasoning += f" | FII buying ₹{today_flow.fii_net:,.0f}Cr — bullish flow"
+                elif flow_signal == "cautious":
+                    # DII absorbing FII selling — mixed, lean neutral/bearish
+                    if signal == "bullish":
+                        signal = "neutral"
+                        confidence -= 10
+                    reasoning += f" | DII absorbing FII selling (FII: ₹{today_flow.fii_net:,.0f}Cr) — watch"
+                else:
+                    reasoning += f" | FII flow: {flow_signal}"
+
+                # Check 3-day trend for more conviction
+                if history and len(history) >= 3:
+                    consecutive_fii_buy = sum(1 for d in history[-3:] if d.fii_net > 0)
+                    consecutive_fii_sell = sum(1 for d in history[-3:] if d.fii_net < 0)
+                    if consecutive_fii_buy == 3:
+                        confidence = min(92, confidence + 5)
+                        reasoning += " [3-day FII buy streak]"
+                    elif consecutive_fii_sell == 3:
+                        signal = "bearish"
+                        confidence = min(92, confidence + 5)
+                        reasoning += " [3-day FII sell streak — distribution]"
+
+        except Exception as fii_exc:
+            logger.debug("FII/DII fetch skipped", reason=str(fii_exc))
+            reasoning += " | FII/DII unavailable"
+
+        confidence = max(30, min(95, confidence))
 
         # Query RAG Engine for book insights (Dalton / Sinclair)
         try:
             from ..knowledge.rag_engine import get_rag_engine
             rag = get_rag_engine()
-            
-            if vix > 25:
-                rag_query = "high volatility trading strategies and crisis market regime"
-            elif vix < 12:
-                rag_query = "low volatility regime complacency and option structures"
-            else:
-                rag_query = "normal market regime trend allocation"
-                
+            rag_query = (
+                "high volatility trading strategies" if vix > 25 else
+                "low volatility regime complacency" if vix < 12 else
+                "normal market regime trend allocation"
+            )
             docs = rag.search(rag_query, k=1)
-            book_insight = ""
             if docs:
-                book_insight = f"\n\n[RAG Insight from {docs[0]['book']} (pg {docs[0]['page']})]: {docs[0]['content'][:150]}..."
-                reasoning += book_insight
-        except Exception as e:
+                reasoning += f" | [{docs[0]['book']}]: {docs[0]['content'][:100]}..."
+        except Exception:
             pass
 
         return AgentResult(
             agent_name=self.name, signal=signal, confidence=confidence,
-            reasoning=reasoning, data={"vix": round(vix, 2)},
+            reasoning=reasoning,
+            data={"vix": round(vix, 2), "fii_dii": fii_data},
         )
 
 
@@ -516,64 +569,123 @@ class SectorAgent(BaseAgent):
         "RELIANCE": "^NSEI", "ONGC": "^NSEI", "BPCL": "^NSEI",
         "NTPC": "^NSEI", "POWERGRID": "^NSEI", "COALINDIA": "^NSEI",
         # Pharma
-        "SUNPHARMA": "^CNXPHARMA", "CIPLA": "^CNXPHARMA", "DRREDDY": "^CNXPHARMA",
-        "DIVISLAB": "^CNXPHARMA", "APOLLOHOSP": "^CNXPHARMA",
-        # Auto — use NIFTY as proxy
-        "MARUTI": "^NSEI", "TATAMOTORS": "^NSEI", "M&M": "^NSEI",
-        "BAJAJ-AUTO": "^NSEI", "EICHERMOT": "^NSEI", "HEROMOTOCO": "^NSEI",
+        "SUNPHARMA": "^CNXPHARMA", "DRREDDY": "^CNXPHARMA",
+        "CIPLA": "^CNXPHARMA", "DIVISLAB": "^CNXPHARMA",
+        # Auto
+        "MARUTI": "^CNXAUTO", "TATAMOTORS": "^CNXAUTO", "M&M": "^CNXAUTO",
+        "BAJAJ-AUTO": "^CNXAUTO", "EICHERMOT": "^CNXAUTO", "HEROMOTOCO": "^CNXAUTO",
         # FMCG
-        "HINDUNILVR": "^NSEI", "ITC": "^NSEI", "NESTLEIND": "^NSEI",
-        "BRITANNIA": "^NSEI", "TATACONSUM": "^NSEI",
+        "HINDUNILVR": "^CNXFMCG", "ITC": "^CNXFMCG", "NESTLEIND": "^CNXFMCG",
+        "BRITANNIA": "^CNXFMCG", "TATACONSUM": "^CNXFMCG",
         # Metal
-        "JSWSTEEL": "^NSEI", "TATASTEEL": "^NSEI", "HINDALCO": "^NSEI",
-        # Infrastructure
-        "LT": "^NSEI", "ULTRACEMCO": "^NSEI", "GRASIM": "^NSEI",
-        "ADANIENT": "^NSEI", "ADANIPORTS": "^NSEI",
-        # Others
-        "TITAN": "^NSEI", "ASIANPAINT": "^NSEI",
-        "BHARTIARTL": "^CNXIT", "UPL": "^CNXPHARMA",
+        "TATASTEEL": "^CNXMETAL", "JSWSTEEL": "^CNXMETAL", "HINDALCO": "^CNXMETAL",
     }
 
-    async def analyze(self, symbol: str, context: dict | None = None) -> AgentResult:
-        from ..services.market_data_service import get_market_data_provider
-
-        clean_symbol = symbol.replace(".NS", "").upper()
-        sector_index = self.SECTOR_MAP.get(clean_symbol)
-
-        if not sector_index:
-            return AgentResult(
-                agent_name=self.name, signal="neutral", confidence=40,
-                reasoning=f"Sector mapping not found for {symbol}",
-            )
-
-        provider = get_market_data_provider()
+    async def analyze(self, symbol: str) -> AgentResult:
+        """Analyze sector strength relative to NIFTY 50."""
         try:
-            df = await provider.get_ohlcv(sector_index, period="3mo")
-            if df.empty:
-                raise ValueError("No sector data")
+            import yfinance as yf
+            sector_index = self.SECTOR_MAP.get(symbol, "^NSEI")
 
-            col = "Close" if "Close" in df.columns else df.columns[3]
-            close = df[col].values
-            change_1m = (close[-1] - close[-21]) / close[-21] * 100
-            change_3m = (close[-1] - close[0]) / close[0] * 100
+            # Fetch sector index data (3 months for trend)
+            ticker = yf.Ticker(sector_index)
+            hist = ticker.history(period="3mo", interval="1d")
 
-            if change_1m > 5:
-                signal, confidence = "bullish", 70 + min(20, change_1m * 2)
-                reasoning = f"Sector up {change_1m:.1f}% in 1M — strong rotation"
-            elif change_1m < -5:
-                signal, confidence = "bearish", 70 + min(20, abs(change_1m) * 2)
-                reasoning = f"Sector down {change_1m:.1f}% in 1M — outflows"
+            if hist.empty or len(hist) < 20:
+                return AgentResult(
+                    agent=self.name,
+                    signal="neutral",
+                    confidence=40,
+                    reasoning=f"Insufficient sector data for {symbol} (index: {sector_index})",
+                )
+
+            close = hist["Close"]
+
+            # Calculate sector momentum: 1-week vs 1-month vs 3-month
+            ret_1w = (close.iloc[-1] / close.iloc[-5] - 1) * 100 if len(close) >= 5 else 0
+            ret_1m = (close.iloc[-1] / close.iloc[-20] - 1) * 100 if len(close) >= 20 else 0
+            ret_3m = (close.iloc[-1] / close.iloc[0] - 1) * 100
+
+            # Compare sector vs NIFTY (relative strength)
+            nifty = yf.Ticker("^NSEI")
+            nifty_hist = nifty.history(period="1mo", interval="1d")
+            nifty_ret_1m = 0.0
+            if not nifty_hist.empty and len(nifty_hist) >= 20:
+                nifty_c = nifty_hist["Close"]
+                nifty_ret_1m = (nifty_c.iloc[-1] / nifty_c.iloc[-20] - 1) * 100
+
+            relative_strength = ret_1m - nifty_ret_1m  # positive = outperforming
+
+            # Score
+            score = 0
+            if ret_1w > 1.5:
+                score += 2
+            elif ret_1w > 0:
+                score += 1
+            elif ret_1w < -1.5:
+                score -= 2
             else:
-                signal, confidence = "neutral", 50
-                reasoning = f"Sector flat ({change_1m:+.1f}% 1M)"
+                score -= 1
+
+            if ret_1m > 3:
+                score += 2
+            elif ret_1m > 0:
+                score += 1
+            elif ret_1m < -3:
+                score -= 2
+            else:
+                score -= 1
+
+            if relative_strength > 2:
+                score += 2
+            elif relative_strength > 0:
+                score += 1
+            elif relative_strength < -2:
+                score -= 2
+            else:
+                score -= 1
+
+            # Map score to signal
+            if score >= 4:
+                signal = "strong_bullish"
+                confidence = 75
+            elif score >= 2:
+                signal = "bullish"
+                confidence = 65
+            elif score <= -4:
+                signal = "strong_bearish"
+                confidence = 75
+            elif score <= -2:
+                signal = "bearish"
+                confidence = 65
+            else:
+                signal = "neutral"
+                confidence = 50
+
+            reasoning = (
+                f"Sector {sector_index}: 1W={ret_1w:+.1f}% 1M={ret_1m:+.1f}% 3M={ret_3m:+.1f}% "
+                f"| vs NIFTY: {relative_strength:+.1f}% | Score={score}"
+            )
 
             return AgentResult(
-                agent_name=self.name, signal=signal, confidence=min(90, confidence),
+                agent=self.name,
+                signal=signal,
+                confidence=confidence,
                 reasoning=reasoning,
-                data={"change_1m": round(change_1m, 2), "change_3m": round(change_3m, 2)},
+                metadata={
+                    "sector_index": sector_index,
+                    "ret_1w": round(ret_1w, 2),
+                    "ret_1m": round(ret_1m, 2),
+                    "ret_3m": round(ret_3m, 2),
+                    "relative_strength": round(relative_strength, 2),
+                    "score": score,
+                },
             )
-        except Exception as e:
+
+        except Exception as exc:
             return AgentResult(
-                agent_name=self.name, signal="neutral", confidence=35,
-                reasoning=f"Sector analysis unavailable: {e}",
+                agent=self.name,
+                signal="neutral",
+                confidence=35,
+                reasoning=f"Sector analysis error: {exc}",
             )

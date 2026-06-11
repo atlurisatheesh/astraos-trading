@@ -68,12 +68,13 @@ export default function OptionsPage() {
   const strikes: Strike[] = isLive ? liveStrikes : FALLBACK_STRIKES;
 
   const analytics = chain?.analytics;
+  // "—" when no live data — never fake numbers that look real
   const metrics = [
-    { label: "PCR (OI)", value: (pcr?.pcr_oi ?? pcr?.pcr ?? analytics?.pcr_oi)?.toFixed?.(2) ?? "1.28", color: "green" },
-    { label: "Max Pain", value: (maxPain?.max_pain_strike ?? analytics?.max_pain) ? Number(maxPain?.max_pain_strike ?? analytics?.max_pain).toLocaleString() : "24,500", color: "accent" },
-    { label: "IV (ATM)", value: chain?.atm_iv ? chain.atm_iv.toFixed(1) + "%" : "12.8%", color: "amber" },
-    { label: "Total CE OI", value: (chain?.total_ce_oi ?? analytics?.total_call_oi) ? (Number(chain?.total_ce_oi ?? analytics?.total_call_oi) / 100000).toFixed(1) + "L" : "16.4L", color: "red" },
-    { label: "Total PE OI", value: (chain?.total_pe_oi ?? analytics?.total_put_oi) ? (Number(chain?.total_pe_oi ?? analytics?.total_put_oi) / 100000).toFixed(1) + "L" : "14.5L", color: "green" },
+    { label: "PCR (OI)", value: (pcr?.pcr_oi ?? pcr?.pcr ?? analytics?.pcr_oi)?.toFixed?.(2) ?? "—", color: "green" },
+    { label: "Max Pain", value: (maxPain?.max_pain_strike ?? analytics?.max_pain) ? Number(maxPain?.max_pain_strike ?? analytics?.max_pain).toLocaleString() : "—", color: "accent" },
+    { label: "IV (ATM)", value: chain?.atm_iv ? chain.atm_iv.toFixed(1) + "%" : "—", color: "amber" },
+    { label: "Total CE OI", value: (chain?.total_ce_oi ?? analytics?.total_call_oi) ? (Number(chain?.total_ce_oi ?? analytics?.total_call_oi) / 100000).toFixed(1) + "L" : "—", color: "red" },
+    { label: "Total PE OI", value: (chain?.total_pe_oi ?? analytics?.total_put_oi) ? (Number(chain?.total_pe_oi ?? analytics?.total_put_oi) / 100000).toFixed(1) + "L" : "—", color: "green" },
   ];
 
   return (

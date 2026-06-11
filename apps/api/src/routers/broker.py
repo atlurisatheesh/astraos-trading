@@ -5,8 +5,10 @@ Unified API for all broker operations. Select broker via query parameter.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.dependencies import get_current_user
+from ..core.database import get_db
 from ..broker import get_broker, list_brokers, BrokerCredentials, OrderParams
 from ..models.user import User
 
@@ -20,14 +22,30 @@ def _session_key(user_id, broker_name: str) -> str:
     return f"{user_id}:{broker_name.lower()}"
 
 
-def _get_user_broker_or_401(user_id, broker_name: str):
+async def _get_user_broker_or_401(user_id, broker_name: str, db: AsyncSession | None = None):
     broker = _active_sessions.get(_session_key(user_id, broker_name))
-    if not broker:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Not logged in to {broker_name}",
-        )
-    return broker
+    if broker:
+        return broker
+
+    # Session lost (server restart / token expiry) — try auto-restore from
+    # encrypted stored credentials before failing.
+    if db is not None:
+        from ..services.broker_store import restore_session
+
+        restored = await restore_session(db, user_id, broker_name)
+        if restored:
+            _active_sessions[_session_key(user_id, broker_name)] = restored
+            return restored
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=f"Not logged in to {broker_name}",
+    )
+
+
+def get_active_sessions() -> dict[str, object]:
+    """Expose active broker sessions for the background sync job."""
+    return _active_sessions
 
 
 class LoginRequest(BaseModel):
@@ -106,7 +124,11 @@ async def active_sessions(current_user: User = Depends(get_current_user)):
 # ═══════════════════════════════════════════════════════════════
 
 @router.post("/login")
-async def broker_login(req: LoginRequest, current_user: User = Depends(get_current_user)):
+async def broker_login(
+    req: LoginRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Login to any broker. Returns auth status + profile."""
     broker = get_broker(req.broker)
 
@@ -130,9 +152,23 @@ async def broker_login(req: LoginRequest, current_user: User = Depends(get_curre
 
     result = await broker.login(credentials)
 
-    # Store session if login succeeded
+    # Store session if login succeeded + persist encrypted credentials
+    # so the session survives server restarts (auto re-login).
     if result.get("status") == "success":
         _active_sessions[_session_key(current_user.id, req.broker)] = broker
+        try:
+            from ..services.broker_store import save_credentials
+            await save_credentials(db, current_user.id, req.broker, {
+                "api_key": req.api_key, "api_secret": req.api_secret,
+                "client_id": req.client_id, "password": req.password,
+                "totp_secret": req.totp_secret, "access_token": req.access_token,
+                "request_token": req.request_token,
+                "extras": {"redirect_uri": req.redirect_uri, "app_name": req.app_name,
+                           "app_source": req.app_source, "email": req.email,
+                           "pin": req.pin, "dob": req.dob},
+            })
+        except Exception:
+            pass  # persistence is best-effort; live session still works
 
     return result
 
@@ -141,8 +177,14 @@ async def broker_login(req: LoginRequest, current_user: User = Depends(get_curre
 async def broker_logout(
     broker_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Logout from a broker session."""
+    """Logout from a broker session and delete stored credentials."""
+    try:
+        from ..services.broker_store import delete_credentials
+        await delete_credentials(db, current_user.id, broker_name)
+    except Exception:
+        pass
     key = _session_key(current_user.id, broker_name)
     if key in _active_sessions:
         del _active_sessions[key]
@@ -203,9 +245,10 @@ async def cancel_order(
 async def get_orders(
     broker_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get order book for a broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     return {"orders": await broker.get_order_book(), "broker": broker_name}
 
@@ -218,9 +261,10 @@ async def get_orders(
 async def get_positions(
     broker_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get positions for a broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     positions = await broker.get_positions()
     return {
@@ -234,9 +278,10 @@ async def get_positions(
 async def get_holdings(
     broker_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get holdings for a broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     holdings = await broker.get_holdings()
     return {
@@ -250,9 +295,10 @@ async def get_holdings(
 async def get_funds(
     broker_name: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get available funds for a broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     return await broker.get_funds()
 
@@ -267,9 +313,10 @@ async def get_ltp(
     exchange: str,
     symbol: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get Last Traded Price from a specific broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     ltp = await broker.get_ltp(exchange, symbol)
     return {"symbol": symbol, "exchange": exchange, "ltp": ltp, "broker": broker_name}
@@ -281,9 +328,10 @@ async def get_quote(
     exchange: str,
     symbol: str,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get full market quote from a specific broker."""
-    broker = _get_user_broker_or_401(current_user.id, broker_name)
+    broker = await _get_user_broker_or_401(current_user.id, broker_name, db)
 
     return await broker.get_quote(exchange, symbol)
 
@@ -340,4 +388,24 @@ async def aggregated_portfolio(current_user: User = Depends(get_current_user)):
                 if key.startswith(prefix)
             ],
         },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Live Sync Snapshot (filled by background scheduler job)
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/snapshot")
+async def broker_snapshot(current_user: User = Depends(get_current_user)):
+    """Latest broker portfolio snapshot from the background sync job.
+
+    Refreshed every 2 minutes during market hours — gives the UI live
+    positions/funds without the page needing to poll the broker directly.
+    """
+    from ..scheduler.jobs import get_broker_snapshots
+
+    snaps = get_broker_snapshots()
+    prefix = f"{current_user.id}:"
+    return {
+        "snapshots": {k.removeprefix(prefix): v for k, v in snaps.items() if k.startswith(prefix)},
     }

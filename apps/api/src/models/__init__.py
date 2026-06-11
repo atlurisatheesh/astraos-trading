@@ -2,6 +2,7 @@
 
 from .user import User
 from .instrument import Instrument
+from .broker import BrokerCredential
 from .trading import (
     Alert,
     AuditLog,
@@ -21,6 +22,7 @@ from .trading import (
 __all__ = [
     "Alert",
     "AuditLog",
+    "BrokerCredential",
     "Instrument",
     "KillSwitchState",
     "NewsArchive",

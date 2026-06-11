@@ -19,6 +19,8 @@ import structlog
 
 from .engine import push_feed
 from ..risk.circuit_breaker import circuit_breaker
+from ..risk.shadow_validator import shadow_validator
+from ..agents.outcome_tracker import outcome_tracker
 
 logger = structlog.get_logger()
 IST = ZoneInfo("Asia/Kolkata")
@@ -104,8 +106,14 @@ class PositionManager:
                 self._closed_positions.append(pos)
                 closed.append(pos)
 
-                # Update circuit breaker
+                # ── Feedback loop 3: circuit breaker learns from this result ──
                 circuit_breaker.record_trade_result(pnl, symbol)
+
+                # ── Feedback loop 4: shadow validator resolves the signal ─
+                shadow_validator.resolve_signal(symbol, exit_price)
+
+                # ── Feedback loop 5: outcome tracker checks prices ────────
+                outcome_tracker.check_outcomes({symbol: exit_price})
 
                 # Push to feed
                 emoji = "+" if pnl >= 0 else ""

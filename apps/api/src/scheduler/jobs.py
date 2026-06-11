@@ -37,10 +37,13 @@ _signal_history: list[dict] = []
 # ── Auto-trade settings ──
 _auto_trade_enabled: bool = False
 _auto_trade_config = {
-    "min_confidence": 75,
+    "min_confidence": 82,    # ← unified with auto_trader default (was 75 — too loose)
+    "min_risk_reward": 1.8,  # ← explicit (was missing, auto_trader default silently applied)
     "max_daily_loss": 15000,
     "max_position_size": 50000,
-    "max_positions": 6,
+    "max_positions": 3,      # ← matches auto_trader default (was 6 — over-concentrated)
+    "capital": 1_000_000,
+    "max_risk_per_trade_pct": 2.0,
 }
 
 # ── News sentiment store ──
@@ -371,6 +374,71 @@ async def job_check_position_exits() -> None:
 
     except Exception as e:
         logger.error("Position exit check failed", error=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════
+# JOB 8: Broker Sync — pull live positions/funds from connected
+# brokers (Angel One etc.) every 2 min during market hours
+# ═══════════════════════════════════════════════════════════════
+
+# Latest broker snapshots, keyed by "<user_id>:<broker>"
+_broker_snapshots: dict[str, dict] = {}
+
+
+def get_broker_snapshots() -> dict[str, dict]:
+    """Latest synced broker portfolio data (positions/funds per session)."""
+    return _broker_snapshots.copy()
+
+
+async def job_sync_broker_positions() -> None:
+    """Sync live positions, holdings and funds from all connected brokers.
+
+    This is what makes the agent actively monitor Angel One — without it,
+    broker data only refreshes while a user has the Live Monitor page open.
+    """
+    if not is_market_hours():
+        return
+
+    try:
+        from ..routers.broker import get_active_sessions  # type: ignore
+
+        sessions = get_active_sessions()
+        if not sessions:
+            return
+
+        for key, broker in list(sessions.items()):
+            try:
+                positions = await broker.get_positions()
+                funds = await broker.get_funds()
+
+                pos_dicts = [vars(p) for p in positions]
+                total_pnl = sum(p.get("pnl", 0) for p in pos_dicts)
+
+                prev = _broker_snapshots.get(key, {})
+                _broker_snapshots[key] = {
+                    "positions": pos_dicts,
+                    "funds": funds,
+                    "total_pnl": round(total_pnl, 2),
+                    "synced_at": datetime.now(IST).isoformat(),
+                }
+
+                # Alert on meaningful P&L swing since last sync (> ₹1,000)
+                prev_pnl = prev.get("total_pnl", total_pnl)
+                if abs(total_pnl - prev_pnl) > 1000:
+                    arrow = "📈" if total_pnl > prev_pnl else "📉"
+                    push_feed(
+                        "BROKER",
+                        f"{arrow} Live P&L moved ₹{prev_pnl:,.0f} → ₹{total_pnl:,.0f} "
+                        f"({len(pos_dicts)} open positions)",
+                        {"pnl": total_pnl, "positions": len(pos_dicts)},
+                    )
+            except Exception as e:
+                logger.warning("Broker sync failed for session", session=key, error=str(e))
+
+        logger.info("Broker sync complete", sessions=len(sessions))
+
+    except Exception as e:
+        logger.error("Broker sync job failed", error=str(e))
 
 
 # ── Control functions ──

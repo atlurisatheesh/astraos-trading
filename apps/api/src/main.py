@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         # Import models to populate Base.metadata — must happen before create_all
         from .models.user import User  # noqa: F401
         from .models.instrument import Instrument  # noqa: F401
+        from .models.broker import BrokerCredential  # noqa: F401
         from .models.trading import (  # noqa: F401
             Alert, AuditLog, KillSwitchState, NewsArchive, Order,
             PortfolioSnapshot, Position, RiskEvent, Signal, Strategy,
@@ -174,6 +175,7 @@ def create_app() -> FastAPI:
         from .core.database import engine, Base
         from .models.user import User  # noqa
         from .models.instrument import Instrument  # noqa
+        from .models.broker import BrokerCredential  # noqa
         from .models.trading import (  # noqa
             Alert, AuditLog, KillSwitchState, NewsArchive, Order,
             PortfolioSnapshot, Position, RiskEvent, Signal, Strategy,

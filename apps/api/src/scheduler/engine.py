@@ -80,6 +80,7 @@ async def start_scheduler() -> None:
         job_check_position_exits,
         job_daily_email_report,
         job_weekly_digest,
+        job_sync_broker_positions,
     )
 
     # ── Market Scan: every 5 min during market hours ──
@@ -128,6 +129,16 @@ async def start_scheduler() -> None:
         trigger=IntervalTrigger(minutes=2, timezone=IST),
         id="position_exits",
         name="Position Exit Manager (Trailing Stops)",
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    # ── Broker Sync: every 2 min during market hours (Angel One live P&L) ──
+    _scheduler.add_job(
+        job_sync_broker_positions,
+        trigger=IntervalTrigger(minutes=2, timezone=IST),
+        id="broker_sync",
+        name="Broker Portfolio Sync (Angel One)",
         max_instances=1,
         replace_existing=True,
     )

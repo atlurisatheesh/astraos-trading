@@ -1,0 +1,21 @@
+name: Keep Render Awake
+
+# Render free tier sleeps after 15 min idle, which kills the APScheduler
+# monitoring jobs. Ping /health every 10 min during (extended) market hours
+# so the agent keeps watching Angel One / NIFTY continuously.
+#
+# Cron is UTC. IST market window 09:00–15:45 IST = 03:30–10:15 UTC.
+
+on:
+  schedule:
+    - cron: "*/10 3-10 * * 1-5"   # every 10 min, 03:00–10:59 UTC, Mon–Fri
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://astraos-backend.onrender.com/health || true)
+          echo "Health check returned HTTP $code"

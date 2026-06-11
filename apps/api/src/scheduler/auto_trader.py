@@ -1,317 +1,240 @@
-"""AstraOS Scheduler — paper auto-trade execution engine.
-
-Now includes:
-  - Level 0 circuit breaker (consecutive-loss pause, daily/weekly/monthly limits)
-  - Kelly Criterion position sizing (Half-Kelly, confidence-scaled)
-  - Time-of-day trade suitability filtering
-  - Realistic slippage simulation on paper fills
-  - Full audit logging on every trade action
-"""
+"""AstraOS Scheduler — paper auto-trade execution engine."""
 
 import asyncio
+import random
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import structlog  # type: ignore
+import structlog
 
-from .engine import push_feed  # type: ignore
+from .engine import push_feed
 from ..knowledge.veteran_intraday_playbook import evaluate_trade_gate
 from ..services.email_service import send_trade_alert
 from ..services.telegram_service import notify_trade_execution
 from ..risk.circuit_breaker import circuit_breaker
 from ..risk.position_sizer import calculate_position_size
 from ..risk.earnings_guard import is_earnings_blackout
+from ..risk.shadow_validator import shadow_validator
 from ..quant.time_features import IntradayWindow
 from ..core.security_hardened import AuditEvent
 from ..knowledge.creator_strategies import evaluate_creator_gates
 from ..ml.model_monitor import model_monitor
+from ..agents.outcome_tracker import outcome_tracker
 from .position_manager import position_manager
 
 logger = structlog.get_logger()
-
 IST = ZoneInfo("Asia/Kolkata")
 
-_daily_pnl: float = 0.0
 _daily_trades: list[dict] = []
 _last_reset_date: str = ""
 
 
 def _reset_daily_if_needed() -> None:
-    """Reset daily counters at the start of a new trading day."""
-    global _daily_pnl, _daily_trades, _last_reset_date
+    global _daily_trades, _last_reset_date
     today = datetime.now(IST).strftime("%Y-%m-%d")
     if today != _last_reset_date:
-        _daily_pnl = 0.0
         _daily_trades = []
         _last_reset_date = today
 
 
 async def _is_platform_halted() -> bool:
-    """Check the durable platform kill switch and fail closed on errors."""
     try:
         from ..core.database import async_session_factory
         from ..risk.kill_switch import is_platform_halted
-
         async with async_session_factory() as db:
             return await is_platform_halted(db)
     except Exception as exc:
-        logger.error("Kill switch check failed - auto-trade halted", error=str(exc))
-        push_feed("RISK", "Auto-trade halted because kill-switch status could not be verified.")
+        logger.error("Kill switch check failed", error=str(exc))
+        push_feed("RISK", "Auto-trade halted — kill-switch unverifiable.")
         return True
 
 
 async def execute_auto_trades(signals: dict[str, dict], config: dict) -> None:
-    """Check latest signals and simulate qualifying trades.
-
-    This function is intentionally paper-only. It is suitable for monitoring and
-    dry runs, not live broker execution.
-    """
+    """Paper auto-trade engine with full protection stack."""
     _reset_daily_if_needed()
 
     if await _is_platform_halted():
-        logger.warning("Kill switch active - auto-trade halted")
         return
 
-    # Level 0: Circuit breaker check (consecutive losses, daily/weekly limits)
-    cb_status = circuit_breaker.check_all()
-    if not cb_status["trading_allowed"]:
-        push_feed(
-            "RISK",
-            f"Circuit breaker active — mode: {cb_status['mode']}. "
-            f"Triggers: {', '.join(cb_status.get('triggers', []))}",
-        )
-        logger.warning("Circuit breaker blocked auto-trade", status=cb_status)
+    cb = circuit_breaker.check_all()
+    if not cb["trading_allowed"]:
+        push_feed("RISK", f"Circuit breaker: {cb['mode']} — {', '.join(cb.get('triggers', []))}")
         return
 
-    # Time-of-day suitability check
     tod = IntradayWindow.classify(datetime.now(IST))
     if tod["trade_suitability"] < 0.4:
-        push_feed(
-            "RISK",
-            f"Time window '{tod['window_name']}' has low suitability ({tod['trade_suitability']:.1f}) — skipping new entries",
-        )
+        push_feed("RISK", f"Window '{tod['window_name']}' suitability={tod['trade_suitability']:.1f} — skipping")
         return
 
+    daily_pnl = position_manager.get_daily_pnl()
     max_daily_loss = config.get("max_daily_loss", 15000)
-    if _daily_pnl < -max_daily_loss:
-        push_feed(
-            "RISK",
-            f"Daily loss limit hit (Rs {abs(_daily_pnl):,.0f}). Auto-trade paused until tomorrow.",
-        )
-        logger.warning("Daily loss limit breached", pnl=_daily_pnl, limit=max_daily_loss)
+    if daily_pnl < -max_daily_loss:
+        push_feed("RISK", f"Daily loss Rs {abs(daily_pnl):,.0f} — paused until tomorrow")
         return
 
     min_confidence = config.get("min_confidence", 82)
-    min_risk_reward = config.get("min_risk_reward", 1.8)
-    max_position_size = config.get("max_position_size", 50000)
+    min_rr = config.get("min_risk_reward", 1.8)
     max_positions = config.get("max_positions", 3)
     capital = config.get("capital", 1_000_000)
 
-    recent_alerts = []
-    recent_news = []
+    # Veteran gate
     try:
-        from .live_scanner import get_alerts  # type: ignore
-
-        recent_alerts = get_alerts(limit=25)
+        from .live_scanner import get_alerts
+        alerts = get_alerts(limit=25)
     except Exception:
-        recent_alerts = []
-
+        alerts = []
     try:
         from ..services.news_service import get_news_provider
-
-        recent_news = await get_news_provider().fetch_news(
-            query="RBI OR Fed OR inflation OR policy India market",
-            limit=8,
-        )
+        news = await get_news_provider().fetch_news(query="RBI OR Fed OR inflation India", limit=8)
     except Exception:
-        recent_news = []
+        news = []
 
-    gate = evaluate_trade_gate(now=datetime.now(IST), alerts=recent_alerts, news_items=recent_news)
+    gate = evaluate_trade_gate(now=datetime.now(IST), alerts=alerts, news_items=news)
     if not gate.allowed:
-        push_feed("RISK", f"Veteran trade gate blocked fresh entries: {', '.join(gate.reasons)}")
-        logger.info("Auto-trade blocked by veteran gate", reasons=gate.reasons)
+        push_feed("RISK", f"Veteran gate blocked: {', '.join(gate.reasons)}")
         return
 
-    qualifying = []
-    for symbol, signal in signals.items():
-        if (
-            signal.get("confidence", 0) >= min_confidence
-            and signal.get("action") in ("BUY", "SELL")
-            and signal.get("risk_reward", 0) >= min_risk_reward
-            and signal.get("entry", 0) > 0
-            and signal.get("stop_loss", 0) > 0
-            and signal.get("target", 0) > 0
-            and not _is_already_positioned(symbol)
-        ):
-            qualifying.append((symbol, signal))
-
+    qualifying = [
+        (sym, sig) for sym, sig in signals.items()
+        if sig.get("confidence", 0) >= min_confidence
+        and sig.get("action") in ("BUY", "SELL")
+        and sig.get("risk_reward", 0) >= min_rr
+        and sig.get("entry", 0) > 0
+        and sig.get("stop_loss", 0) > 0
+        and sig.get("target", 0) > 0
+        and not _is_already_positioned(sym)
+    ]
     qualifying.sort(key=lambda x: x[1].get("confidence", 0), reverse=True)
-    available_slots = max(0, max_positions - len(_daily_trades))
-    qualifying = qualifying[:available_slots]
-
-    if not qualifying:
-        return
+    qualifying = qualifying[: max(0, max_positions - len(_daily_trades))]
 
     for symbol, signal in qualifying:
         try:
             action = signal["action"]
-            entry_price = signal.get("entry", 0)
+            entry = signal.get("entry", 0)
             target = signal.get("target", 0)
-            stop_loss = signal.get("stop_loss", 0)
-            risk_reward = signal.get("risk_reward", 0)
-            confidence = signal.get("confidence", 0)
+            sl = signal.get("stop_loss", 0)
+            rr = signal.get("risk_reward", 0)
+            conf = signal.get("confidence", 0)
 
-            if entry_price <= 0:
+            if entry <= 0:
                 continue
 
-            # Earnings blackout check
-            blackout, blackout_reason = is_earnings_blackout(symbol)
+            # Earnings blackout
+            blackout, reason = is_earnings_blackout(symbol)
             if blackout:
-                push_feed("RISK", blackout_reason)
-                logger.info("Trade blocked by earnings blackout", symbol=symbol)
+                push_feed("RISK", reason)
                 continue
 
-            # Creator strategy quality gate (StockVid Telugu rules)
-            creator_check = evaluate_creator_gates(
-                signal=signal,
-                now=datetime.now(IST),
-                rsi=signal.get("rsi", 50),
-                volume_ratio=signal.get("rel_volume", 1.0),
+            # RealTraderBrain 8-checkpoint gate
+            try:
+                from ..agents.real_trader_brain import analyze_like_real_trader
+                brain = await analyze_like_real_trader(symbol)
+                if brain.action == "NO_TRADE":
+                    failed = [c.name for c in brain.checklist if not c.passed]
+                    push_feed("RISK", f"Brain blocked {symbol}: {brain.confirmations_passed}/8 passed. Failed: {', '.join(failed[:3])}")
+                    continue
+                push_feed("BRAIN", f"Brain: {brain.conviction} on {symbol} ({brain.confirmations_passed}/8 ✓)")
+            except Exception as be:
+                logger.warning("RealTraderBrain error", symbol=symbol, error=str(be))
+
+            # Creator gate
+            creator = evaluate_creator_gates(
+                signal=signal, now=datetime.now(IST),
+                rsi=signal.get("rsi", 50), volume_ratio=signal.get("rel_volume", 1.0),
                 above_vwap=signal.get("above_vwap", True),
                 candle_patterns=signal.get("candlestick_patterns", []),
                 regime=signal.get("regime", "normal"),
             )
-            if not creator_check["allowed"]:
-                push_feed(
-                    "RISK",
-                    f"Creator rules blocked {symbol}: {'; '.join(creator_check['reasons'][:2])}",
-                )
-                continue
-            if creator_check["matching_strategies"]:
-                push_feed(
-                    "STRATEGY",
-                    f"{symbol} matches: {', '.join(creator_check['matching_strategies'][:2])}",
-                )
-
-            if risk_reward < min_risk_reward:
-                logger.info(
-                    "Trade skipped due to low risk reward",
-                    symbol=symbol,
-                    risk_reward=risk_reward,
-                    min_risk_reward=min_risk_reward,
-                )
+            if not creator["allowed"]:
+                push_feed("RISK", f"Creator blocked {symbol}: {'; '.join(creator['reasons'][:2])}")
                 continue
 
-            # Kelly Criterion position sizing
+            if rr < min_rr:
+                continue
+
+            # Kelly sizing
             pos = calculate_position_size(
-                capital=capital,
-                entry_price=entry_price,
-                stop_loss=stop_loss,
-                confidence=confidence,
+                capital=capital, entry_price=entry, stop_loss=sl, confidence=conf,
                 max_risk_pct=config.get("max_risk_per_trade_pct", 2.0),
                 lot_size=signal.get("lot_size", 1),
             )
-
             if pos.quantity <= 0:
-                logger.info("Position size too small", symbol=symbol, reason=pos.reasoning)
                 continue
 
-            quantity = pos.quantity
-            position_value = pos.position_value
-
-            # Simulate realistic fill with slippage
-            import random
-            slippage_bps = random.uniform(2, 10)  # 2-10 basis points
-            slippage_amount = entry_price * slippage_bps / 10000
-            fill_price = entry_price + slippage_amount if action == "BUY" else entry_price - slippage_amount
+            # Slippage simulation
+            slip_bps = random.uniform(2, 10)
+            slip = entry * slip_bps / 10000
+            fill = entry + slip if action == "BUY" else entry - slip
 
             trade = {
-                "symbol": symbol,
-                "action": action,
-                "quantity": quantity,
-                "entry_price": entry_price,
-                "fill_price": round(fill_price, 2),
-                "slippage": round(slippage_amount, 2),
-                "target": target,
-                "stop_loss": stop_loss,
-                "confidence": confidence,
-                "position_value": round(quantity * fill_price, 2),
+                "symbol": symbol, "action": action,
+                "quantity": pos.quantity, "entry_price": entry,
+                "fill_price": round(fill, 2), "slippage": round(slip, 2),
+                "target": target, "stop_loss": sl, "confidence": conf,
+                "position_value": round(pos.quantity * fill, 2),
                 "kelly_fraction": round(pos.kelly_fraction, 4),
                 "risk_per_trade": round(pos.risk_per_trade, 2),
                 "time_window": tod["window_name"],
                 "timestamp": datetime.now(IST).isoformat(),
-                "status": "PAPER_EXECUTED",
-                "broker": "paper",
+                "status": "PAPER_EXECUTED", "broker": "paper",
             }
             _daily_trades.append(trade)
-
-            # Register with position manager for exit management
             position_manager.add_position(trade)
+
+            # Feedback loop 1: shadow validator
+            shadow_validator.record_signal(
+                symbol=symbol, action=action, entry_price=fill,
+                target_price=target, stop_loss=sl, confidence=conf,
+                agent_signals=signal.get("agents", {}),
+            )
+
+            # Feedback loop 2: outcome tracker (Bayesian reweighting)
+            outcome_tracker.record_signal(
+                symbol=symbol, action=action, entry_price=fill,
+                target_price=target, stop_loss=sl,
+                agent_signals={
+                    a.get("agent", "?"): {"signal": a.get("signal", "neutral"), "confidence": a.get("confidence", 50)}
+                    for a in signal.get("agents", []) if isinstance(a, dict)
+                },
+            )
 
             push_feed(
                 "AUTO_TRADE",
-                f"{action} {quantity} {symbol} @ Rs {entry_price:,.2f} | "
-                f"Target Rs {target:,.0f} | SL Rs {stop_loss:,.0f} | Conf {confidence:.0f}%",
+                f"{action} {pos.quantity} {symbol} @ Rs {entry:,.2f} | "
+                f"Target Rs {target:,.0f} | SL Rs {sl:,.0f} | Conf {conf:.0f}%",
                 trade,
             )
 
-            # Audit log the trade
             AuditEvent.log_trade(
-                user_id="system_auto_trader",
-                symbol=symbol,
-                action=action,
-                quantity=quantity,
-                price=fill_price,
-                broker="paper",
+                user_id="system_auto_trader", symbol=symbol, action=action,
+                quantity=pos.quantity, price=fill, broker="paper",
             )
 
-            logger.info(
-                "Paper auto-trade executed",
-                symbol=symbol,
-                action=action,
-                qty=quantity,
-                price=fill_price,
-                slippage=slippage_amount,
-                kelly=pos.kelly_fraction,
-                confidence=confidence,
-            )
+            logger.info("Paper trade executed", symbol=symbol, action=action,
+                        qty=pos.quantity, fill=fill, kelly=pos.kelly_fraction, conf=conf)
 
             asyncio.create_task(
-                notify_trade_execution(
-                    symbol=symbol,
-                    side=action,
-                    quantity=quantity,
-                    price=entry_price,
-                    reason=f"Paper AI Signal (Conf {confidence:.0f}%)",
-                )
+                notify_trade_execution(symbol=symbol, side=action, quantity=pos.quantity,
+                                       price=entry, reason=f"Paper AI (Conf {conf:.0f}%)")
             )
-
             asyncio.create_task(
-                send_trade_alert(
-                    symbol=symbol,
-                    side=action,
-                    quantity=quantity,
-                    price=entry_price,
-                    reason=f"Paper AI Signal (Conf {confidence:.0f}%)",
-                )
+                send_trade_alert(symbol=symbol, side=action, quantity=pos.quantity,
+                                 price=entry, reason=f"Paper AI (Conf {conf:.0f}%)")
             )
 
         except Exception as exc:
-            logger.error("Auto-trade execution failed", symbol=symbol, error=str(exc))
-            push_feed("ERROR", f"Trade execution failed for {symbol}: {exc}")
+            logger.error("Auto-trade failed", symbol=symbol, error=str(exc))
+            push_feed("ERROR", f"Trade failed {symbol}: {exc}")
 
 
 def _is_already_positioned(symbol: str) -> bool:
-    """Check if we already have an open paper position for this symbol today."""
     return any(t["symbol"] == symbol for t in _daily_trades)
 
 
 def get_daily_trades() -> list[dict]:
-    """Get all paper trades executed today."""
     _reset_daily_if_needed()
     return _daily_trades.copy()
 
 
 def get_daily_pnl() -> float:
-    """Get today's paper P&L."""
-    return _daily_pnl
+    return position_manager.get_daily_pnl()
