@@ -50,6 +50,23 @@ _auto_trade_config = {
 _news_sentiments: list[dict] = []
 
 
+async def restore_state() -> None:
+    """Reload signals + positions from DB after a restart."""
+    try:
+        from ..services.state_store import load_state
+
+        saved = await load_state("signals")
+        if saved:
+            _signals.update(saved.get("latest", {}))
+            _signal_history.extend(saved.get("history", []))
+            logger.info("Signals restored", count=len(_signals))
+
+        from .position_manager import position_manager
+        await position_manager.restore()
+    except Exception as e:
+        logger.warning("Scheduler state restore failed", error=str(e))
+
+
 def get_signals() -> dict[str, dict]:
     """Get latest signals for all monitored symbols."""
     return _signals.copy()
@@ -236,6 +253,10 @@ async def job_generate_signals() -> None:
                 logger.error("Signal generation failed", symbol=symbol, error=str(e))
 
         logger.info("Signals generated", batch=batch, total_signals=len(_signals))
+
+        # Mirror to DB so signals survive restarts
+        from ..services.state_store import save_state
+        await save_state("signals", {"latest": _signals, "history": _signal_history[:200]})
 
     except Exception as e:
         logger.error("Signal generation job failed", error=str(e))

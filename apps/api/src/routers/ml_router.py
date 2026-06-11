@@ -30,7 +30,12 @@ def _run_training(
     status = get_training_status()
     if status.get("status") == "completed" and status.get("metrics"):
         try:
-            register_model(MODEL_PATH, status["metrics"])
+            result = register_model(MODEL_PATH, status["metrics"])
+            # Mirror to DB — model file dies with Render's ephemeral disk
+            if result.get("promoted"):
+                import asyncio
+                from ..ml.model_store import backup_active_model
+                asyncio.run(backup_active_model())
         except Exception:
             pass
 

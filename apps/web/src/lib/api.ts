@@ -99,6 +99,16 @@ export interface PositionItem {
   is_open: boolean;
 }
 
+export interface BrokerSnapshot {
+  positions: {
+    symbol: string; exchange: string; side: string; quantity: number;
+    avg_price: number; ltp: number; pnl: number; broker: string;
+  }[];
+  funds: { available?: number; used?: number; total?: number; broker?: string };
+  total_pnl: number;
+  synced_at: string;
+}
+
 export interface AlertItem {
   id: number;
   symbol: string;
@@ -271,9 +281,12 @@ export const api = {
   getOrders: () => fetchApi("/api/v1/orders/"),
   getPositions: () => fetchApi<PositionItem[]>("/api/v1/positions/"),
 
+  // Broker live sync (filled by backend scheduler every 2 min)
+  getBrokerSnapshot: () =>
+    fetchApi<{ snapshots: Record<string, BrokerSnapshot> }>("/api/v1/broker/snapshot"),
+
   // Watchlist items (detail)
   getWatchlistDetail: (id: number) => fetchApi(`/api/v1/watchlists/${id}`),
-  deleteWatchlist: (id: number) => fetchApi(`/api/v1/watchlists/${id}`, { method: "DELETE" }),
 
   // Risk
   getRiskMetrics: () => fetchApi(`/api/v1/risk/metrics`),

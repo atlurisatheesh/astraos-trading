@@ -95,7 +95,12 @@ async def job_weekly_retrain() -> None:
         
         # Register in model registry (auto-promotes if better)
         result = register_model(CURRENT_MODEL, metrics)
-        
+
+        # Mirror to DB so the model survives Render restarts (ephemeral disk)
+        if result["promoted"]:
+            from .model_store import backup_active_model
+            await backup_active_model()
+
         version = result["version"]
         accuracy = result["accuracy"]
         promoted = result["promoted"]
@@ -169,7 +174,12 @@ async def train_on_demand(
     
     # Register and potentially promote
     result = register_model(CURRENT_MODEL, metrics)
-    
+
+    # Mirror to DB so the model survives Render restarts (ephemeral disk)
+    if result["promoted"]:
+        from .model_store import backup_active_model
+        await backup_active_model()
+
     return {
         "status": "completed",
         "version": result["version"],

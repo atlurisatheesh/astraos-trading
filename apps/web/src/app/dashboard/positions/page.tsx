@@ -1,6 +1,6 @@
 "use client";
 
-import { api, PositionItem } from "@/lib/api";
+import { api, PositionItem, BrokerSnapshot } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
@@ -23,6 +23,9 @@ function fmt(n: number) { return n.toLocaleString("en-IN", { minimumFractionDigi
 export default function PositionsPage() {
   const { data: positions } = useApi(() => api.getPositions(), [], { interval: 10000 });
   const { data: wsPortfolio } = useWebSocket<{ positions: PositionItem[] }>("/ws/portfolio");
+  // Broker snapshot is refreshed by the backend scheduler every 2 min
+  const { data: brokerSnap } = useApi(() => api.getBrokerSnapshot(), [], { interval: 60000 });
+  const brokerEntries = Object.entries(brokerSnap?.snapshots ?? {}) as [string, BrokerSnapshot][];
 
   const livePositions = wsPortfolio?.positions ?? positions ?? [];
   const openPositions = livePositions.filter((p: PositionItem) => p.is_open);
@@ -55,6 +58,57 @@ export default function PositionsPage() {
   return (
     <div className="space-y-5 animate-fade-in">
       <h1 className="text-2xl font-bold font-[var(--font-heading)]">💼 Positions</h1>
+
+      {brokerEntries.map(([broker, snap]) => (
+        <div key={broker} className="card border border-[var(--border-active)]">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold font-[var(--font-heading)]">
+              🏦 {broker.toUpperCase()} — Live Broker Sync
+              <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded signal-buy">LIVE</span>
+            </h2>
+            <span className="text-[10px] text-[var(--text-tertiary)]">
+              synced {new Date(snap.synced_at).toLocaleTimeString("en-IN")}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="text-center">
+              <div className="text-[10px] text-[var(--text-tertiary)]">Day P&L</div>
+              <div className={`text-lg font-bold font-[var(--font-mono)] ${snap.total_pnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                {snap.total_pnl >= 0 ? "+" : ""}₹{fmt(snap.total_pnl)}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-[10px] text-[var(--text-tertiary)]">Available Funds</div>
+              <div className="text-lg font-bold font-[var(--font-mono)]">₹{fmt(snap.funds?.available ?? 0)}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-[10px] text-[var(--text-tertiary)]">Open Positions</div>
+              <div className="text-lg font-bold font-[var(--font-mono)]">{snap.positions.length}</div>
+            </div>
+          </div>
+          {snap.positions.length > 0 && (
+            <table className="w-full text-xs font-[var(--font-mono)]">
+              <thead><tr className="text-[10px] text-[var(--text-tertiary)] border-b border-[var(--border)]">
+                {["Symbol", "Side", "Qty", "Avg", "LTP", "P&L"].map(h => <th key={h} className="pb-2 text-left font-medium">{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {snap.positions.map((p, i) => (
+                  <tr key={i} className="border-b border-[var(--border)] hover:bg-[var(--bg-card-hover)]">
+                    <td className="py-2 font-semibold">{p.symbol}</td>
+                    <td className={p.side === "BUY" ? "text-[var(--green)]" : "text-[var(--red)]"}>{p.side}</td>
+                    <td>{p.quantity}</td>
+                    <td>₹{fmt(p.avg_price)}</td>
+                    <td>₹{fmt(p.ltp)}</td>
+                    <td className={p.pnl >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}>
+                      {p.pnl >= 0 ? "+" : ""}₹{fmt(p.pnl)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ))}
 
       <div className="card">
         <h2 className="text-base font-semibold font-[var(--font-heading)] mb-3 text-[var(--green)]">Open Positions ({openRows.length})</h2>

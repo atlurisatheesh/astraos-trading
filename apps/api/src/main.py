@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
         from .models.user import User  # noqa: F401
         from .models.instrument import Instrument  # noqa: F401
         from .models.broker import BrokerCredential  # noqa: F401
+        from .models.ml_artifact import MLModelArtifact  # noqa: F401
+        from .models.state import SchedulerState  # noqa: F401
         from .models.trading import (  # noqa: F401
             Alert, AuditLog, KillSwitchState, NewsArchive, Order,
             PortfolioSnapshot, Position, RiskEvent, Signal, Strategy,
@@ -45,6 +47,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         import traceback
         logger.error("DB create_all FAILED", error=str(e), trace=traceback.format_exc()[-500:])
+
+    # Restore ML model from DB backup if the local file was wiped (ephemeral disk)
+    try:
+        from .ml.model_store import restore_active_model
+        await restore_active_model()
+    except Exception as e:
+        logger.warning("ML model restore skipped", error=str(e))
 
     # Start the continuous monitoring scheduler
     try:

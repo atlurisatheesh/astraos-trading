@@ -3,6 +3,8 @@
 from .user import User
 from .instrument import Instrument
 from .broker import BrokerCredential
+from .ml_artifact import MLModelArtifact
+from .state import SchedulerState
 from .trading import (
     Alert,
     AuditLog,
@@ -24,12 +26,14 @@ __all__ = [
     "AuditLog",
     "BrokerCredential",
     "Instrument",
+    "MLModelArtifact",
     "KillSwitchState",
     "NewsArchive",
     "Order",
     "PortfolioSnapshot",
     "Position",
     "RiskEvent",
+    "SchedulerState",
     "Signal",
     "Strategy",
     "TradeJournal",

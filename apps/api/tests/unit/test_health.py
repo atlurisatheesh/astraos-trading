@@ -12,8 +12,10 @@ async def test_health_check(client: AsyncClient):
     data = resp.json()
     assert data["status"] == "healthy"
     assert data["service"] == "AstraOS API"
-    assert data["providers"]["market_data"] == "yfinance"
-    assert data["providers"]["broker"] == "paper"
+    # Providers are env-dependent (yfinance/angel_one, paper/angel) —
+    # assert presence, not specific values
+    assert "market_data" in data["providers"]
+    assert "broker" in data["providers"]
 
 
 @pytest.mark.asyncio

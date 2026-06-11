@@ -174,6 +174,13 @@ async def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    # Restore signals + positions saved before the last restart
+    try:
+        from .jobs import restore_state  # type: ignore
+        await restore_state()
+    except Exception:
+        pass
+
     _scheduler.start()
 
     # Start the continuous live scanner (per-second market monitoring)

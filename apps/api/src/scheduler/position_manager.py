@@ -34,6 +34,27 @@ class PositionManager:
         self._closed_positions: list[dict] = []
         self._trailing_stops: dict[str, float] = {}  # symbol -> current trailing SL
 
+    def _persist(self) -> None:
+        """Mirror state to DB so positions survive server restarts."""
+        from ..services.state_store import save_state_background
+        save_state_background("position_manager", {
+            "open": self._open_positions,
+            "closed": self._closed_positions[-200:],
+            "trailing_stops": self._trailing_stops,
+        })
+
+    async def restore(self) -> None:
+        """Reload state from DB on startup (no-op when nothing saved)."""
+        from ..services.state_store import load_state
+        state = await load_state("position_manager")
+        if not state:
+            return
+        self._open_positions = state.get("open", [])
+        self._closed_positions = state.get("closed", [])
+        self._trailing_stops = {k: float(v) for k, v in state.get("trailing_stops", {}).items()}
+        logger.info("Position manager state restored",
+                    open=len(self._open_positions), closed=len(self._closed_positions))
+
     def add_position(self, trade: dict) -> None:
         """Register a new position from the auto-trader."""
         symbol = trade["symbol"]
@@ -44,6 +65,7 @@ class PositionManager:
         self._trailing_stops[symbol] = sl
 
         logger.info("Position registered", symbol=symbol, entry=trade.get("fill_price"))
+        self._persist()
 
     def check_exits(self, current_prices: dict[str, float]) -> list[dict]:
         """Check all open positions for exit conditions.
@@ -136,6 +158,8 @@ class PositionManager:
                 # Clean up trailing stop
                 self._trailing_stops.pop(symbol, None)
 
+        if closed:
+            self._persist()
         return closed
 
     def _update_trailing_stop(self, pos: dict, current_price: float) -> None:
@@ -202,6 +226,7 @@ class PositionManager:
 
         push_feed("RISK", f"EMERGENCY: All {len(closed)} positions closed")
         self._trailing_stops.clear()
+        self._persist()
         return closed
 
     def get_open_positions(self) -> list[dict]:
