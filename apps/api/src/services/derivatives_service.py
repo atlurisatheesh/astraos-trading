@@ -157,6 +157,10 @@ class DerivativesService:
         # Try NSE public API first
         chain = await self._fetch_nse_chain(symbol, expiry)
 
+        # Fallback: Angel One optionGreek (works on cloud hosts where NSE blocks)
+        if not chain or (not chain.calls and not chain.puts):
+            chain = await self._fetch_angel_chain(symbol, expiry)
+
         # Fallback to yfinance
         if not chain or (not chain.calls and not chain.puts):
             chain = await self._fetch_yfinance_chain(symbol, expiry)
@@ -357,6 +361,97 @@ class DerivativesService:
 
         except Exception as e:
             logger.warning("NSE option chain failed, falling back", symbol=symbol, error=str(e))
+            return None
+
+    # ── Angel One Chain Fetcher (optionGreek API) ───────────
+
+    @staticmethod
+    def _next_expiries(count: int = 4) -> list[str]:
+        """Upcoming weekly (Thursday) expiries in Angel format DDMMMYYYY."""
+        from datetime import date, timedelta
+
+        today = date.today()
+        days_to_thu = (3 - today.weekday()) % 7  # Thursday = 3
+        first = today + timedelta(days=days_to_thu)
+        return [
+            (first + timedelta(weeks=w)).strftime("%d%b%Y").upper()
+            for w in range(count)
+        ]
+
+    async def _fetch_angel_chain(self, symbol: str, expiry: str | None) -> OptionsChainData | None:
+        """Build a chain from Angel One's optionGreek endpoint.
+
+        Used when NSE blocks the server IP (Render). Provides strikes, IV,
+        greeks and traded volume — optionGreek has no LTP/OI, so those stay 0
+        and the UI shows what's available.
+        """
+        try:
+            from ..routers.broker import get_active_sessions
+
+            angel = next(
+                (b for k, b in get_active_sessions().items()
+                 if k.endswith(":angel") and getattr(b, "is_logged_in", False)),
+                None,
+            )
+            if not angel:
+                return None
+
+            expiries = [expiry.upper()] if expiry else self._next_expiries()
+            greeks: list[dict] = []
+            used_expiry = ""
+            for exp in expiries:
+                greeks = await angel.get_option_greeks(symbol.upper(), exp)
+                if greeks:
+                    used_expiry = exp
+                    break
+            if not greeks:
+                return None
+
+            # Spot price from broker LTP (index symbols need NSE token; best-effort)
+            underlying = 0.0
+            try:
+                underlying = await angel.get_ltp("NSE", symbol.upper())
+            except Exception:
+                pass
+
+            calls: list[OptionContract] = []
+            puts: list[OptionContract] = []
+            for g in greeks:
+                contract = OptionContract(
+                    strike=float(g.get("strikePrice", 0)),
+                    option_type=g.get("optionType", "CE"),
+                    volume=int(float(g.get("tradeVolume", 0) or 0)),
+                    iv=float(g.get("impliedVolatility", 0) or 0),
+                    delta=float(g.get("delta", 0) or 0),
+                    gamma=float(g.get("gamma", 0) or 0),
+                    theta=float(g.get("theta", 0) or 0),
+                    vega=float(g.get("vega", 0) or 0),
+                )
+                (calls if contract.option_type == "CE" else puts).append(contract)
+
+            if not calls and not puts:
+                return None
+
+            total_call_vol = sum(c.volume for c in calls)
+            total_put_vol = sum(p.volume for p in puts)
+
+            logger.info("Options chain served from Angel One", symbol=symbol,
+                        expiry=used_expiry, strikes=len(calls) + len(puts))
+
+            return OptionsChainData(
+                symbol=symbol,
+                underlying_price=float(underlying or 0),
+                expiry=used_expiry,
+                available_expiries=self._next_expiries(),
+                calls=sorted(calls, key=lambda c: c.strike),
+                puts=sorted(puts, key=lambda p: p.strike),
+                pcr_volume=round(total_put_vol / max(total_call_vol, 1), 2),
+                total_call_volume=total_call_vol,
+                total_put_volume=total_put_vol,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception as e:
+            logger.warning("Angel option chain failed", symbol=symbol, error=str(e))
             return None
 
     # ── yfinance Chain Fetcher ──────────────────────────────

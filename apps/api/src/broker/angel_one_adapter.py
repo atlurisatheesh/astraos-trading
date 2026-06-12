@@ -169,6 +169,22 @@ class AngelOneAdapter:
         except Exception as e:
             return {"error": str(e)}
 
+    async def get_option_greeks(self, name: str, expiry: str) -> list[dict]:
+        """Get option greeks (IV, delta, gamma, theta, vega, volume) per strike.
+
+        Args:
+            name: Underlying name, e.g. "NIFTY", "RELIANCE"
+            expiry: Expiry in Angel format, e.g. "25JAN2024" (DDMMMYYYY)
+        """
+        if not self._smart_api:
+            return []
+        try:
+            data = self._smart_api.optionGreek({"name": name, "expirydate": expiry})
+            return data.get("data") or []
+        except Exception as e:
+            logger.error("Angel One optionGreek error", name=name, expiry=expiry, error=str(e))
+            return []
+
     async def place_order(
         self,
         symbol: str,

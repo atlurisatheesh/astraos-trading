@@ -124,6 +124,12 @@ class AngelOneUnified(BrokerAdapter):
             return {}
         return await self._adapter.get_quote(exchange, symbol)
 
+    async def get_option_greeks(self, name: str, expiry: str) -> list[dict]:
+        """Option greeks per strike from Angel One (IV, delta, volume)."""
+        if not self._adapter:
+            return []
+        return await self._adapter.get_option_greeks(name, expiry)
+
     @property
     def is_logged_in(self) -> bool:
         return self._logged_in
